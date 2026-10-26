@@ -86,7 +86,8 @@ def points_of(names):
 
 def of_skeleton(skel, definitions=()):
     """[(k = number - 800, parent bone index, [(point number - 850, slot)], summon or None)] of a skeleton's
-    weapons, for character.ini; definitions: the fighter's WEAPONS (their summons, by the bones' names)."""
+    weapons, for character.ini; T8 entries append (retargeted, optional scale pair).
+    definitions: the fighter's WEAPONS (their summons, by the bones' names)."""
     index = _numbers(skel)
     out = []
     for n in sorted(index):
@@ -94,10 +95,17 @@ def of_skeleton(skel, definitions=()):
             b = index[n]
             points = [(m - POINT_FIRST, _point(skel['names'][index[m]])[2]) for m in sorted(index)
                       if m >= POINT_FIRST and skel['parent'][index[m]] == b]
-            summon = next((w.get('summon') for w in definitions
+            definition = next((w for w in definitions
                            if (OPT_FIRST + w['pair'] == n if w.get('pair') is not None else
-                               ('cha:OPT%d_%s' % (n, w['bone']))[:NAME_LENGTH] == skel['names'][b])), None)
-            out.append((n - OPT_FIRST, skel['parent'][b], points, summon))
+                               ('cha:OPT%d_%s' % (n, w['bone']))[:NAME_LENGTH] == skel['names'][b])), {})
+            entry = (n - OPT_FIRST, skel['parent'][b], points, definition.get('summon'))
+            # Retargeted T8 pairs cannot contain a different fighter's item
+            # channels. Their own authored motion must not hit the T7 safeguard.
+            if definition.get('source_parent'):
+                entry += (True,)
+                if definition.get('scale_pair') is not None:
+                    entry += (definition['scale_pair'],)
+            out.append(entry)
     return out
 
 
@@ -109,6 +117,16 @@ def number_of(skel, weapon):
     return next(n for n in range(STILL_FIRST, POINT_FIRST) if n not in used)
 
 
+def source_index(names, name):
+    """Find an original joint, including T8's role@original-name aliases."""
+    if name in names:
+        return names.index(name)
+    matches = [i for i, n in enumerate(names) if n.partition('@')[2] == name]
+    if len(matches) != 1:
+        raise ValueError('weapon joint %s has %d source matches' % (name, len(matches)))
+    return matches[0]
+
+
 def append_bones(skel, t7bones, weapon):
     """The fighter's skeleton with a weapon's bone and its hit points after its own.
     t7bones: {'names', 'parents', 'world'} of the Tekken 7 skeleton holding the weapon's bone (model.load_tekken7_model:
@@ -117,8 +135,7 @@ def append_bones(skel, t7bones, weapon):
     -> (skeleton, the weapon bone's index, its number, the point numbers used)."""
     names = [n[4:] if n.startswith('cha:') else n for n in skel['names']]
     parent = names.index(weapon['parent'])
-    t7 = {n: i for i, n in enumerate(t7bones['names'])}
-    i = t7[weapon['bone']]
+    i = source_index(t7bones['names'], weapon['bone'])
     world_t7 = np.array(t7bones['world'], np.float64)
 
     def axes(k):
@@ -160,7 +177,7 @@ def append_bones(skel, t7bones, weapon):
         if isinstance(where, dict):
             x = world_t7[i][:3, 3] + np.asarray(where['world_offset'], dtype=float)
         elif isinstance(where, str):
-            x = world_t7[t7[where]][:3, 3]
+            x = world_t7[source_index(t7bones['names'], where)][:3, 3]
         else:                                                      # cm along the weapon (Tekken 7's x)
             x = world_t7[i][:3, 3] + a[:, 0] * where * 10.0 * scale
         local = np.eye(4)

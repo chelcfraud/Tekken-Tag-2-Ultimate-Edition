@@ -157,6 +157,19 @@ class Props(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             uprops.read(k, k.exports[0], self.schema)
 
+    def test_nanite_override_native_layout(self):
+        data=name('/Game/Test/Item')+name('Item')+fstring('sub')+struct.pack('<II',1,0)
+        k=package(data)
+        start=k.exports[0].offset
+        value,end=uprops.read_struct(k,self.schema,'MaterialOverrideNanite',start)
+        self.assertEqual(value,{'OverrideMaterialRef':'/Game/Test/Item.Item:sub',
+                                'bEnableOverride':True,'OverrideMaterial':None})
+        self.assertEqual(end-start,len(data))
+        bad=name('None')*2+fstring('')+struct.pack('<II',2,0)
+        k=package(bad)
+        with self.assertRaises(ValueError):
+            uprops.read_struct(k,self.schema,'MaterialOverrideNanite',k.exports[0].offset)
+
     def test_zero_struct_and_errors(self):
         data = header([(8, True), (10, True), (11, True)]) + b'\0' * 4
         k = package(data)
