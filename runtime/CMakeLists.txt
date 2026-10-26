@@ -113,4 +113,7 @@ target_compile_options(cafe_latte PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(cafe-shader src/latte/cafe_shader_main.cpp)
 target_link_libraries(cafe-shader PRIVATE cafe_latte ${SHADERC_LIBRARY})
+if(WIN32)
+    target_include_directories(cafe-shader PRIVATE ${CMAKE_SOURCE_DIR}/third_party/shaderc/libshaderc/include)
+endif()
 target_compile_options(cafe-shader PRIVATE -Wall -Wextra -Wpedantic)
