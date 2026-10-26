@@ -34,6 +34,7 @@ The moveset (the files autodump.py saves):
     anmbin.py     the animation banks: a fighter's own (.anmbin) and the shared one (com.anmbin)
     panm.py       the banks' animations (PANM) -> per-joint local transforms per frame
     anim.py       body animations retargeted onto a TTT2 skeleton, for the converter's motion pack
+    collision_audit.py complete source hitboxes and conversion losses of experimental packs
     movelist.py   the command list (.mvl, MVLT) -> a TTT2 command list
 
     from ttt2char.tekken8 import store, uprops

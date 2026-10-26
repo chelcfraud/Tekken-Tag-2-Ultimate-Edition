@@ -342,7 +342,7 @@ class OnlyTekken8(unittest.TestCase):
         self.assertEqual(everyone, list(CHARACTERS))
         with tempfile.TemporaryDirectory() as d:
             runs, shared, out = self.add(d, everyone)
-        self.assertEqual(runs, ['reina'])
+        self.assertEqual(runs, [n for n in CHARACTERS if game_of(definition(n)) == 'tekken8'])
         self.assertEqual(shared.call_args[0][0], None)                      # (no Tekken 7 for what the packs share)
         t7 = [f for f in CHARACTERS if game_of(definition(f)) == 'tekken7']
         self.assertEqual([line for line in out.splitlines() if line.startswith('@skipped')],
@@ -375,7 +375,9 @@ class LauncherStatus(unittest.TestCase):
     """Her pack fighting with the stand-in's moveset: "update" once her own can be had (saved, or Tekken 8 a build
     the helper knows); "moveset_saved": her own saved whole."""
 
-    def status(self, stand_in=True, saved=None, tekken8=False, known=False):
+    def status(self, stand_in=True, saved=None, tekken8=False, known=False, fighters=('reina',)):
+        # These cases exercise Reina's fallback; unrelated new fighters must
+        # not make the launcher's global build check necessary in this fixture.
         with tempfile.TemporaryDirectory() as d:
             packs, movesets8, game = (os.path.join(d, n) for n in ('packs', 'movesets8', 'TEKKEN 8'))
             r = definition('reina')
@@ -384,11 +386,13 @@ class LauncherStatus(unittest.TestCase):
                 write_saved(movesets8, {'zbr': saved}, {'build': 'old'})
             os.makedirs(os.path.join(game, 'Polaris', 'Content', 'Paks'))
             with mock.patch.dict(os.environ, HOME=d, TTT2_CHARACTERS=packs), \
+                    mock.patch.object(launcher, 'CHARACTERS', fighters), \
                     mock.patch.object(source, 'find_tekken8', return_value=game if tekken8 else None), \
                     mock.patch.object(dump8, 'known_build', return_value=known) as checked:
                 s = launcher.status(None, os.path.join(d, 'movesets'), movesets8)
                 json.dumps(s)
         self.tekken8 = s['tekken8']
+        self.fighters = {f['name']: f for f in s['fighters']}
         f = {f['name']: f for f in s['fighters']}['reina']
         return (f['stand_in'], f['update'], f['moveset_saved']), checked
 
@@ -414,6 +418,15 @@ class LauncherStatus(unittest.TestCase):
         got, checked = self.status(stand_in=False, saved=False, tekken8=True, known=True)
         self.assertEqual(got, (False, False, True))
         checked.assert_not_called()
+
+    def test_clive_is_explicitly_marked_as_not_working_properly(self):
+        self.status(stand_in=False, saved=False, fighters=('reina', 'clive'))
+        clive = self.fighters['clive']
+        self.assertTrue(clive['experimental'])
+        self.assertIn('experimental - not working properly', clive['display'])
+        self.assertIn('does not work properly', clive['warning'])
+        self.assertIn('hitboxes', clive['warning'])
+        self.assertEqual(self.fighters['reina']['display'], 'Reina')
 
 
 # ---------------------------------------------------------------- the package

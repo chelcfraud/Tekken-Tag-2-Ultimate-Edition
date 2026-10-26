@@ -138,6 +138,10 @@ def status(game=None, movesets=None, movesets8=None):
                    'newer': packs.get(d.CODE) == 'newer',
                    'update': d.CODE in loaded and loaded[d.CODE]['revision'] < pack.revision(d),
                    'moveset_saved': tekken8_fighter or d.TEKKEN7_ID in saved}
+        if getattr(d, 'EXPERIMENTAL', False):
+            fighter['display'] += ' (experimental - not working properly)'
+            fighter['experimental'] = True
+            fighter['warning'] = d.EXPERIMENTAL_WARNING
         if tekken8_fighter:
             own = getattr(d, 'MOVESET_SOURCE', None) == 'tekken8'       # (importer.converts_tekken8, without numpy)
             fighter['moveset_saved'] = not own or dump8.whole(dump8.saved_files(d.TEKKEN8_CODE, movesets8))

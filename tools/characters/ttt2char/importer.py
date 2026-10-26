@@ -268,11 +268,15 @@ def _source(d, tekken7, tekken8, files):
 
 def _run(name, tekken7, movesets, game, out, log, make_shared, files, tekken8):
     d = definition(name)
+    if getattr(d, 'EXPERIMENTAL', False):
+        log('WARNING: %s: %s' % (d.NAME, d.EXPERIMENTAL_WARNING))
     folder, open_source = _source(d, tekken7, tekken8, files)
     saved8 = None
     if converts_tekken8(d):             # (decided before the model: the donor's skeleton is the base of hers)
         saved8, why = tekken8_moveset(d, movesets)
         if saved8 is None:
+            if getattr(d, 'REQUIRE_OWN_MOVESET', False):
+                raise InputError('%s needs its own complete Tekken 8 moveset: %s' % (d.NAME, why))
             log('WARNING: %s\'s own moveset cannot be had: %s (import_character.py saves it while Steam runs). %s '
                 'is imported with %s\'s TTT2 moveset instead (and that fighter\'s skeleton and voice list).'
                 % (d.NAME, why, d.NAME, art.NAME_TEXTS.get(d.STAND_IN[0], d.STAND_IN[0]).title()))
@@ -495,8 +499,8 @@ def _converted_tekken8_moveset(source, archives, d, place, saved, donor_xml, eff
         banks = anmbin.Banks(own_bank, common_bank, k.character_id)
         common = archives.entry('data004', 0)
         animations = anim.Animations(banks, anim.Converter(anim.load_skeleton(source.store, d.TEKKEN8_CODE),
-                                                           bone.read(bon)),
-                                     anim.originals(k, banks, ttt2_movesets, common,
+                                                           bone.read(bon), weapons=getattr(d, 'WEAPONS', ())),
+                                     None if getattr(d, 'WEAPONS', ()) else anim.originals(k, banks, ttt2_movesets, common,
                                                     lambda row: archives.entry('data005', row), d.DONOR_ROW))
         c = moveset.Converter(k, None, ttt2_movesets[d.DONOR_ROW], archives.entry('data005', d.DONOR_ROW),
                               ttt2_movesets[13], common, (req, prop, reactions, hitboxes), usage, place['row'], d)
@@ -539,4 +543,10 @@ def _converted_tekken8_moveset(source, archives, d, place, saved, donor_xml, eff
         sub('WARNING: the command list could not be converted (%s): Practice shows %s\'s' % (error, d.DONOR))
     if mvl is None:
         sub('no command list of %s\'s own: Practice shows %s\'s' % (d.NAME, d.DONOR))
+    if getattr(d, 'COLLISION_AUDIT', False):
+        from .tekken8 import collision_audit
+        audit = collision_audit.report(c)
+        effect_files['conversion-report.json'] = json.dumps(audit, indent=2).encode('utf-8')
+        sub('WARNING: collision audit (%s): %s; see conversion-report.json in the pack'
+            % (audit['status'], audit['affected_moves']))
     return moves, motions, xml, effect_files, mvl
