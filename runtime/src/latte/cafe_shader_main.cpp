@@ -62,7 +62,7 @@ int check(const char* directory) {
         std::string error;
         ++shaders;
         if (!cafe::latte::decode(words, program, error)) {
-            std::printf("%s: %s\n", entry.path().filename().c_str(), error.c_str());
+            std::printf("%s: %s\n", entry.path().filename().string().c_str(), error.c_str());
             ++failures;
             continue;
         }
