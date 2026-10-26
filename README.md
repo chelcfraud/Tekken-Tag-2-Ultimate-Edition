@@ -62,6 +62,12 @@ and shaders are translated to Vulkan as it runs.
 
 ## Status
 
+**Clive Rosfield is experimental and does not work properly.** His import is
+available from the player's own Tekken 8 installation and owned Clive DLC, but
+character and sword hitboxes, special moves and Eikon effects are incomplete.
+The launcher and importer mark him accordingly. See [Clive import status](docs/CLIVE_IMPORT.md)
+for the implemented features, known problems and remaining work.
+
 Playable from boot through arcade mode. Not done yet: the Wii U GamePad's
 screen and speaker, online play, the software keyboard and error viewer
 screens, and audio effects the game does not seem to use. Only the European
@@ -151,7 +157,8 @@ dumps from the debugging options under `local/` too.
 4. Leave setup running while it downloads missing tools, prepares libraries,
    checks your game executable, builds and installs the Windows game.
 5. Click **Play** when setup completes. To add fighters, open Steam, close T7/T8,
-   select fighters and use **Import / Update selected**. Reina requires Tekken 8.
+   select fighters and use **Import / Update selected**. Reina and experimental
+   Clive require Tekken 8; Clive also requires his owned DLC and does not work properly.
 
 The first setup needs internet, a Vulkan-capable graphics driver, an x86-64-v3
 CPU and substantial free disk space for the tools, generated build and game.
@@ -207,10 +214,13 @@ before acting on a button, and its keyboard keys ([Playing](#playing)). Its
 Characters section shows where Steam has Tekken 7 and Tekken 8, or why one cannot be used, and a part for each game's
 fighters (the installed game's first), with **Add** per fighter: Tekken 7's with **Add All** and its DLC
 fighters in a list that opens, with those your Steam account owns and **Add
-All Owned**; Tekken 8's (Reina) without Tekken 7 or any of its fighters. **Remove** takes one out again. A
-Tekken 8 fighter whose moves could not be saved from Tekken 8 (a game update its helper does not know yet, or
-nothing to run it hidden) is added with Heihachi's moves, says so and why, and is offered as an update once
-their own can be saved. What all added fighters share is made from each one's own game, so while one game is
+All Owned**; Tekken 8's (Reina and experimental Clive) without Tekken 7 or any of its fighters.
+Clive does not work properly; see the [known problems](docs/CLIVE_IMPORT.md).
+**Remove** takes one out again. If Reina's moves cannot be saved from Tekken 8
+(a game update its helper does not know yet, or nothing to run it hidden), she is
+added with Heihachi's moves, says so and why, and is offered as an update once
+her own can be saved. Clive requires his own complete saved moveset and has no donor-moveset fallback.
+What all added fighters share is made from each one's own game, so while one game is
 uninstalled its fighters stay in the game but no other can be added: the launcher says so, and offers to
 remove that game's fighters all at once.
 

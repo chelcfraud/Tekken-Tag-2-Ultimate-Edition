@@ -130,12 +130,17 @@ def worker(settings, action, names):
         run_command(settings.installer_command(action == 'update'), settings)
     elif action in ('import', 'remove'):
         command = settings.import_command(names, action == 'remove')
-        if action == 'import' and 'reina' in names:
+        from ttt2char.characters import definition, game_of
+        tekken8_fighters = [definition(n) for n in names if game_of(definition(n)) == 'tekken8']
+        if action == 'import' and tekken8_fighters:
             from ttt2char.tekken8 import autodump as t8
             game = t8.find_tekken8()
-            t8.dump([28], references=[fid for fid in t8.ROSTER if fid != 28])
-            if not t8.whole(t8.saved_files('zbr', t8.MOVESETS, t8.game_version(game.game, game.library))):
-                raise RuntimeError('Reina extraction is incomplete; existing packs were not changed.')
+            ids = [d.TEKKEN8_ID for d in tekken8_fighters]
+            t8.dump(ids, references=[fid for fid in t8.ROSTER if fid not in ids])
+            version = t8.game_version(game.game, game.library)
+            for d in tekken8_fighters:
+                if not t8.whole(t8.saved_files(d.TEKKEN8_CODE, t8.MOVESETS, version)):
+                    raise RuntimeError('%s extraction is incomplete; existing packs were not changed.' % d.NAME)
         import runpy
         sys.argv = command[2:]
         runpy.run_path(command[2], run_name='__main__')
@@ -153,5 +158,8 @@ def fighters(settings):
         if found:
             state = 'Update available' if found['revision'] < pack.revision(d) else 'Added'
             if found.get('stand_in'): state = 'Stand-in moves: reimport'
-        rows.append((name, d.NAME, 'Tekken 8' if game_of(d) == 'tekken8' else 'Tekken 7', state))
+        label = d.NAME + (' (experimental)' if getattr(d, 'EXPERIMENTAL', False) else '')
+        if getattr(d, 'EXPERIMENTAL', False):
+            state += ' - not working properly'
+        rows.append((name, label, 'Tekken 8' if game_of(d) == 'tekken8' else 'Tekken 7', state))
     return rows

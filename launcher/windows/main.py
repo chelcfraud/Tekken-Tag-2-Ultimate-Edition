@@ -169,7 +169,7 @@ def main():
     ttk.Label(home, text='Fighters', font=('Segoe UI', 13, 'bold')).pack(anchor='w', pady=(14, 4))
     ttk.Label(home, text='Select fighters below. Importing uses your own Steam games and the shared character rules.').pack(anchor='w')
     tree = ttk.Treeview(home, columns=('fighter', 'game', 'status'), show='headings', height=9, selectmode='extended')
-    for column, title, width in [('fighter', 'Fighter', 360), ('game', 'Source game', 140), ('status', 'Pack', 230)]:
+    for column, title, width in [('fighter', 'Fighter', 360), ('game', 'Source game', 140), ('status', 'Pack', 310)]:
         tree.heading(column, text=title); tree.column(column, width=width)
     tree.pack(fill='both', expand=True, pady=8)
     row = ttk.Frame(home); row.pack(fill='x')
@@ -282,12 +282,13 @@ def main():
     smoke_errors = []
     if args.ui_smoke_test:
         def smoke_body():
-            assert len(tree.get_children()) == 18
+            from ttt2char.characters import CHARACTERS
+            assert len(tree.get_children()) == len(CHARACTERS)
             tree.selection_set(['reina']); assert tree.selection() == ('reina',)
             tabs.select(paths_tab); assert fields['packs'].get() == settings.values['packs']
             tabs.select(display_tab); assert resolution.get()
             tabs.select(home)
-            args.ui_smoke_test.write_text(json.dumps(dict(window=window.title(), fighters=18, tabs=3,
+            args.ui_smoke_test.write_text(json.dumps(dict(window=window.title(), fighters=len(CHARACTERS), tabs=3,
                 selected=list(tree.selection()), paths=settings.values), indent=2), encoding='utf-8')
         def smoke():
             try: smoke_body()
