@@ -311,6 +311,20 @@ def _rich_curve_key(r):
                      'ArriveTangentWeight', 'LeaveTangent', 'LeaveTangentWeight'), v))
 
 
+def _nanite_override(r):
+    """Cooked FMaterialOverrideNanite: soft reference, bool32, cooked object reference.
+
+    This is a native serializer, rather than an unversioned property list.
+    The material is still read normally; its Nanite substitute is unused by TTT2.
+    """
+    reference = r.soft_path()
+    enabled = r.one('I', 4)
+    if enabled not in (0, 1):
+        raise ValueError('invalid Nanite material override flag %d' % enabled)
+    return {'OverrideMaterialRef': reference, 'bEnableOverride': bool(enabled),
+            'OverrideMaterial': r.reference()}
+
+
 XYZ, XYZW, RGBA, BGRA = ('X', 'Y', 'Z'), ('X', 'Y', 'Z', 'W'), ('R', 'G', 'B', 'A'), ('B', 'G', 'R', 'A')
 NATIVE = {   # structs with a serialiser of their own (TStructOpsTypeTraits WithSerializer) or a fixed binary layout
     'Vector': _fields('<3d', XYZ), 'Vector3d': _fields('<3d', XYZ), 'Vector3f': _fields('<3f', XYZ),
@@ -335,6 +349,7 @@ NATIVE = {   # structs with a serialiser of their own (TStructOpsTypeTraits With
     'PerPlatformBool': _per_platform(lambda r: bool(r.one('I', 4))), 'PerPlatformFrameRate': _per_platform(_frame_rate),
     'PerQualityLevelInt': _per_quality(_int), 'PerQualityLevelFloat': _per_quality(_float),
     'RichCurveKey': _rich_curve_key, 'SimpleCurveKey': _fields('<2f', ('Time', 'Value')),
+    'MaterialOverrideNanite': _nanite_override,
     'SkeletalMeshSamplingLODBuiltData': lambda r: {'AreaWeightedTriangleSampler': _weighted_sampler(r)},
 }
 AS_PROPERTIES = {   # structs whose serialiser only notes a version and leaves the rest to the properties

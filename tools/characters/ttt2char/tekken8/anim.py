@@ -43,7 +43,7 @@ import numpy as np
 
 from .. import InputError
 from ..convert import retarget
-from ..ttt2 import animation, motion
+from ..ttt2 import animation, bone, motion
 from . import anmbin, panm, uprops
 
 SKELETON_PATH = 'Polaris/Content/Character/Item/shared/skeleton/%s/SKB_CH_%s_base_msl'
@@ -131,22 +131,58 @@ class Converter:
     bone.read() of the TTT2 skeleton they will play on (the added fighter's, skeleton.build); kind: 0x64
     (animation.COMPRESSED) or 0xC8 (animation.RAW)."""
 
-    def __init__(self, sk, target, kind=animation.COMPRESSED):
+    def __init__(self, sk, target, kind=animation.COMPRESSED, weapons=()):
         self.sk, self.kind = sk, kind
         self.cal = retarget.Calibration(sk, LANDMARKS, DRIVERS, retarget.ttt2_skeleton(target))
         self.leg, self.own_leg = retarget.leg_length(target), bind_leg(sk)
         # the joints the channels need, and their ancestors: a small skeleton of its own
-        want = [sk.index[j] for j in set(DRIVERS.values()) | {TOP, TRANS, ROT}]
+        self.weapons = []
+        self.weapon_nodes = set()
+        target_names = [n.removeprefix('cha:') for n in target['names']]
+        target_world = bone.world_matrices(target)
+        source_R, source_p = sk.bind_world()
+        used_pairs = set()
+        for spec in weapons:
+            pair = spec.get('pair')
+            if pair is None or not 0 <= pair < 20:
+                raise ValueError('Tekken 8 weapon needs an animation pair in 0..19')
+            scale_pair = spec.get('scale_pair')
+            pairs = [pair] + ([] if scale_pair is None else [scale_pair])
+            if any(not 0 <= n < 20 or n in used_pairs for n in pairs) or len(set(pairs)) != len(pairs):
+                raise ValueError('Tekken 8 weapon animation pairs overlap or exceed 0..19')
+            used_pairs.update(pairs)
+            source_parent = spec['source_parent']
+            p, j = sk.index[source_parent], sk.index[spec['bone']]
+            prefix = 'OPT%d_' % (800 + pair)
+            matches = [i for i,n in enumerate(target_names) if n.startswith(prefix)]
+            if len(matches) != 1 or spec['parent'] not in self.cal.offsets:
+                raise ValueError('weapon %s has no unique target bone/animated parent' % spec['bone'])
+            index = matches[0]
+            if target_names[target['parent'][index]] != spec['parent']:
+                raise ValueError('weapon %s is bound to the wrong parent' % spec['bone'])
+            local_R = bone.matrix_from_euler_xyz(np.asarray(target['r'][index], np.float64))
+            parent_basis = self.cal.offsets[spec['parent']]
+            bind_R = source_R[p].T @ source_R[j]
+            bind_p = source_R[p].T @ (source_p[j] - source_p[p])
+            self.weapons.append(dict(pair=pair, scale_pair=scale_pair, joint=j, parent=p, basis=parent_basis,
+                rotation=bind_R.T @ parent_basis @ local_R, source_bind=bind_p,
+                target_bind=np.asarray(target['t'][index],np.float64),
+                parent_scale=float(np.linalg.norm(target_world[target['parent'][index],:3,0]))))
+            node = j
+            while node != p:
+                if node < 0:
+                    raise ValueError('weapon %s is not below %s' % (spec['bone'],source_parent))
+                self.weapon_nodes.add(sk.names[node])
+                node = sk.parents[node]
+        want = [sk.index[j] for j in set(DRIVERS.values()) | {TOP, TRANS, ROT} | self.weapon_nodes]
         chain = sk.chain(want)
         at = {j: k for k, j in enumerate(chain)}
         self.sub = retarget.Skeleton([sk.names[j] for j in chain],
                                      [at[sk.parents[j]] if sk.parents[j] >= 0 else -1 for j in chain],
                                      sk.t[chain], sk.R[chain], sk.s[chain])
 
-    def pose(self, anim):
-        """The clip's source pose: (world rotations {joint: (F, 3, 3)}, root (F, 3) mm, displacement (F, 3) mm,
-        yaw (F,), the leg (mm) its root is measured against, joints {name: panm.Joint}). The joints keep the
-        fighter's own lengths (the clip's other translations are its authoring rig's); only the root moves."""
+    def _sample(self, anim):
+        """Sample the body and weapon chains in the same source frame."""
         J = anim.joints()
         sub, F = self.sub, anim.frames
         LR = np.repeat(sub.R[None], F, 0)
@@ -157,9 +193,28 @@ class Converter:
                 continue
             if j.stored_rotation:
                 LR[:, i] = animation.quaternion_to_matrix(_quaternions(j.rotation))
-            if j.stored_translation and name in ROOT:
+            if j.stored_translation and (name in ROOT or name in self.weapon_nodes):
                 Lt[:, i] = j.translation * CM
         WR, Wp = sub.fk(LR, Lt)
+        # Weapon scales also move their descendants (the blade tip in particular).
+        # Body retargeting keeps the fighter's own proportions as before.
+        matrices = WR * sub.s[None, :, None, :]
+        for i in sub.order:
+            name = sub.names[i]
+            if name not in self.weapon_nodes:
+                continue
+            p = sub.parents[i]
+            Wp[:, i] = Wp[:, p] + np.einsum('fij,fj->fi', matrices[:, p], Lt[:, i])
+            scale = J[name].scale if name in J else sub.s[i]
+            matrices[:, i] = (matrices[:, p] @ LR[:, i]) * np.asarray(scale)[..., None, :]
+        return WR, Wp, J
+
+    def pose(self, anim, _sampled=None):
+        """The clip's source pose: (world rotations {joint: (F, 3, 3)}, root (F, 3) mm, displacement (F, 3) mm,
+        yaw (F,), the leg (mm) its root is measured against, joints {name: panm.Joint}). The joints keep the
+        fighter's own lengths (the clip's other translations are its authoring rig's); only the root moves."""
+        WR, Wp, J = self._sample(anim) if _sampled is None else _sampled
+        sub, F = self.sub, anim.frames
         world = {n: WR[:, sub.index[n]] for n in set(DRIVERS.values())}
         D = Wp[:, sub.index[TOP]]
         root = Wp[:, sub.index[ROT]] - D
@@ -172,9 +227,34 @@ class Converter:
 
     def channels(self, anim):
         """(TTT2 body channel values (F, 23, 3), info {'frames', 'leg', 'root_scale'}) of a panm.Animation."""
-        world, root, D, yaw, leg, _ = self.pose(anim)
+        sampled = self._sample(anim)
+        world, root, D, yaw, leg, _ = self.pose(anim, sampled)
         k = self.leg / leg
         values = retarget.body_channels(self.cal, world, root, D, yaw, k, self.kind)
+        if self.weapons:
+            WR, Wp, J = sampled
+            last_pair = max(max(w['pair'], w['scale_pair'] if w['scale_pair'] is not None else 0)
+                            for w in self.weapons)
+            extra = np.zeros((anim.frames, 2*(1+last_pair),3))
+            for w in self.weapons:
+                p = self.sub.index[self.sk.names[w['parent']]]
+                j = self.sub.index[self.sk.names[w['joint']]]
+                inverse = np.swapaxes(WR[:,p],-1,-2)
+                relative_R = inverse @ WR[:,j]
+                relative_p = np.einsum('fij,fj->fi',inverse,Wp[:,j]-Wp[:,p])
+                R = w['basis'].T @ relative_R @ w['rotation']
+                at = 2*w['pair']
+                extra[:,at] = w['target_bind'] + (relative_p-w['source_bind']) @ w['basis'] / w['parent_scale']
+                extra[:,at+1] = animation.axis_angles(R) if self.kind == animation.COMPRESSED else retarget._euler(R)
+                if w['scale_pair'] is not None:
+                    scale = np.ones((anim.frames, 3))
+                    node = w['joint']
+                    while node != w['parent']:
+                        name = self.sk.names[node]
+                        scale *= J[name].scale if name in J else self.sk.s[node]
+                        node = self.sk.parents[node]
+                    extra[:,2*w['scale_pair']] = scale
+            values = np.concatenate([values,extra],axis=1)
         return values, dict(frames=anim.frames, leg=leg, root_scale=k)
 
     def animation(self, blob, endian='>'):

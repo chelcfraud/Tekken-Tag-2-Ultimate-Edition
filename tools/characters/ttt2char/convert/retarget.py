@@ -407,7 +407,7 @@ def rotation_shift(values):
     the unquantised pose, at the game's usual 4 within 2 mm, with 0.3 mm of frame-to-frame jitter on a planted foot,
     for 0.74 of the size (Reina's clips). The game stores some of its own so too (Jun's stance)."""
     v = np.asarray(values, np.float64)
-    rot = [c for c, d in enumerate(animation.BODY_DESCRIPTORS) if animation.is_rotation(d)]
+    rot = [c for c, d in enumerate(descriptors(values)) if animation.is_rotation(d)]
     top = float(np.abs(v[:, rot]).max()) if v.size else 0.0
     shift = 0
     while shift < MAX_SHIFT and np.round(top / (float(animation.ROTATION_UNIT) * (1 << shift))) > 32767:
@@ -420,12 +420,22 @@ def rotation_shift(values):
 RAW_DESCRIPTORS = tuple(animation.ROTATION if animation.is_rotation(d) else d for d in animation.BODY_DESCRIPTORS)
 
 
+def descriptors(values, kind=animation.COMPRESSED):
+    """Body descriptors followed by the weapon translation/rotation pairs, if present."""
+    count = np.asarray(values).shape[1]
+    extra = count - len(animation.BODY_DESCRIPTORS)
+    if extra < 0 or extra % 2:
+        raise ValueError('body animation must have 23 channels followed by complete extra pairs')
+    body = animation.BODY_DESCRIPTORS if kind == animation.COMPRESSED else RAW_DESCRIPTORS
+    return list(body) + [11, animation.ROTATION] * (extra // 2)
+
+
 def encode(values, kind=animation.COMPRESSED, endian='>'):
     """A TTT2 body animation (bytes) of body_channels() values: 0x64 (compressed) or 0xC8 (raw)."""
     if kind == animation.COMPRESSED:
-        return animation.encode_compressed(list(animation.BODY_DESCRIPTORS), values, endian,
+        return animation.encode_compressed(descriptors(values, kind), values, endian,
                                            rotation_shift=rotation_shift(values))
-    return animation.encode_raw(list(RAW_DESCRIPTORS), values, endian)
+    return animation.encode_raw(descriptors(values, kind), values, endian)
 
 
 # ------------------------------------------------------------------------------------------------ checking

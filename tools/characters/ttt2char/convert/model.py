@@ -748,7 +748,10 @@ def convert(source, archives, d, slot=0, log=print, standing=None):
         tag = 'weapon%d' % n
         if w.get('mesh'):
             if w['mesh'] not in loaded:
-                loaded[w['mesh']] = load_tekken7_model(paks, [(tag, w['mesh'])], [tag])
+                wk = source.load_model([(tag, w['mesh'])], [tag], log=log)
+                if source.game == 'tekken8':
+                    wk = skeleton.repose(wk, donor, log=log)
+                loaded[w['mesh']] = wk
             wk = loaded[w['mesh']]
         else:                                    # a weapon only hitting: its bones are the costume's
             wk = k
@@ -756,7 +759,7 @@ def convert(source, archives, d, slot=0, log=print, standing=None):
         kept = []
         if w.get('mesh') and w.get('draw', True):
             weight_maps[tag] = np.full(len(wk['bones']['names']), index, np.int64)
-            own = wk['bones']['names'].index(w['bone'])
+            own = weapons.source_index(wk['bones']['names'], w['bone'])
             kept = [dict(q, part=tag) for q in (weapons.triangles(q, own) for q in wk['prims']) if len(q['tris'])]
             parts.append((tag, w['mesh']))
             prims += kept

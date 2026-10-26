@@ -198,6 +198,8 @@ struct Weapon {
     uint32_t pair = 0, parent = 0;
     std::vector<WeaponPoint> points;
     int32_t summon = -1; // -1: always shown
+    bool retargeted = false; // sampled from this fighter's own T8 weapon chains
+    int32_t scale_pair = -1; // optional extra translation channel carrying animated XYZ scale
 };
 
 // The added fighters, by number k (their slots).
@@ -426,6 +428,8 @@ std::optional<Pack> read_pack(const fs::path& directory) {
                     weapon.points.push_back(point);
                 }
                 if (fields.size() > 3 && !fields[3].empty()) weapon.summon = std::atoi(fields[3].c_str());
+                if (fields.size() > 4) weapon.retargeted = fields[4] == "1";
+                if (fields.size() > 5) weapon.scale_pair = std::atoi(fields[5].c_str());
                 pack.weapons.push_back(weapon);
             }
         }
@@ -3209,7 +3213,8 @@ void pose_weapons(PPCContext& ctx, uint8_t* base, uint32_t model, uint32_t playe
         std::array<uint32_t, 16> local = bone.bind;
         const uint32_t* t =
             weapon.pair < kStillWeapons && 8 * weapon.pair + 8 <= extra.size() ? &extra[8 * weapon.pair] : nullptr;
-        if (t != nullptr && weapon.summon < 0 && std::hypot(value(t[0]), value(t[1]), value(t[2])) > kHeldReach) {
+        if (t != nullptr && !weapon.retargeted && weapon.summon < 0 &&
+            std::hypot(value(t[0]), value(t[1]), value(t[2])) > kHeldReach) {
             t = nullptr;
         }
         if (t != nullptr) {
@@ -3223,6 +3228,13 @@ void pose_weapons(PPCContext& ctx, uint8_t* base, uint32_t model, uint32_t playe
                 local[12 + row] = t[row];
             }
             local[15] = bits(1.0f);
+        }
+        if (weapon.scale_pair >= 0 && weapon.scale_pair < 20 &&
+            8u * weapon.scale_pair + 4 <= extra.size()) {
+            const uint32_t* scale = &extra[8 * weapon.scale_pair];
+            for (int row = 0; row < 3; ++row)
+                for (int col = 0; col < 3; ++col)
+                    local[4 * row + col] = bits(value(local[4 * row + col]) * value(scale[row]));
         }
         shown[w] = summoned(weapon, player);
         if (records != 0) {
