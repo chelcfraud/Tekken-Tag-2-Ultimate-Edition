@@ -1,6 +1,9 @@
 #include "title/roster.h"
 #include "title/eliza_assist.h"
 #include "title/damage_scaling.h"
+#include "title/imported_hitboxes.h"
+#include "title/clive_state.h"
+#include "title/clive_hud.h"
 #include "outfit_menu.h"
 
 #include "cafe/ppc_ops.h"
@@ -219,6 +222,7 @@ struct Added {
     uint32_t code_string = 0;       // the code as a guest string
     fs::path pack;
     std::vector<Weapon> weapons;
+    hitboxes::Moves collision_moves;
     std::vector<Outfit> outfits;
 };
 std::vector<Added> g_added;
@@ -1180,6 +1184,22 @@ void prepare_costumes(const Pack& pack, uint32_t donor, size_t slot) {
 // R = Rz Ry Rx, scale), and their last frame puts the bones back where they
 // wait (the pack's tiger: far below the floor).
 constexpr uint32_t kPlayerSelectId = 84, kPlayerAnimator = 7944;
+std::map<uint32_t,clive::Gauge> g_clive_gauges;
+bool clive_player(uint32_t player) {
+    const int k=player ? slot_of_id(load(player+kPlayerSelectId)) : -1;
+    return k>=0 && g_added[k].code=="clv";
+}
+void publish_clive_hud(uint32_t player) {
+    // The four native fighters live in a fixed array, indexed by actor+0x4c
+    // (05C5EF74). Exclude recursively updated accessory/physics objects.
+    constexpr uint32_t first=0x10884b50,stride=0x2960;
+    if(player<first || player>=first+4*stride || (player-first)%stride)return;
+    const unsigned slot=(player-first)/stride;
+    const bool present=clive_player(player);
+    const auto it=g_clive_gauges.find(player);
+    clive::hud::publish(slot,it==g_clive_gauges.end()?0:it->second.points,present,
+        load(player+0x1e80)!=0);
+}
 constexpr uint32_t kAnimatorSet = 8, kAnimatorValue = 12, kAnimatorFrame = 16;
 constexpr uint32_t kPart3 = 0x4000;         // an animator's value: an animation of part 3 (index below)
 constexpr uint32_t kModelInterface = 12948; // the model's interface: its method +68 gives the player
@@ -1321,6 +1341,27 @@ void prepare_roster() {
         added.code = pack.code;
         added.pack = pack.directory;
         added.weapons = pack.weapons;
+        if(pack.code=="clv") {
+            if(auto atlas=read_file(pack.directory/(pack.code+".zanhud"))) {
+                try { clive::hud::digits.store(clive::hud::read(*atlas),std::memory_order_release); }
+                catch(const std::exception& error) {
+                    std::fprintf(stderr,"ttt2: clv: numeral atlas: %s; using fallback digits\n",error.what());
+                }
+            }
+        }
+        if (auto shapes = read_file(pack.directory / (pack.code + ".hitboxes"))) {
+            try {
+                const auto moves = read_file(pack.directory / (pack.code + ".moveset"));
+                if (!moves) throw std::runtime_error("missing moveset");
+                added.collision_moves = hitboxes::read(*shapes, crc32(0,moves->data(),moves->size()));
+                std::fprintf(stderr,"ttt2: %s: full collision volumes for %zu moves\n",
+                    pack.code.c_str(),added.collision_moves.size());
+            } catch (const std::exception& error) {
+                std::fprintf(stderr,"ttt2: %s: invalid hitboxes (%s); reimport this fighter; skipped\n",
+                    pack.code.c_str(),error.what());
+                continue;
+            }
+        }
         for (size_t i = 0; i < pack.outfits.size(); ++i) {
             const auto& code = pack.outfits[i];
             if (fighter_id(code) || std::any_of(g_added.begin(), g_added.end(), [&](const Added& a) {
@@ -1637,6 +1678,7 @@ constexpr float kAddedLookYaw = 60.0f;                                  // TTT2'
 PPC_FUNC(sub_033D5BBC_orig);
 PPC_FUNC(sub_033D5BBC) {
     const uint32_t player = ctx.r[3];
+    g_clive_gauges.erase(player); // a new actor must not inherit a previous match's gauge
     const int k = slot_of_record(load(player + kPlayerRecord));
     if (std::getenv("TTT2_TRACE_ROSTER")) {
         std::fprintf(stderr, "ttt2: roster: player %08X set up: select id %u, record %08X (slot %d), row %u\n", player,
@@ -3074,6 +3116,8 @@ std::map<uint32_t, WeaponBone> g_weapon_bones; // record -> its bind, the local 
 std::map<uint32_t, uint64_t> g_summoned; // player -> its summoned weapons (bit n: summon n)
 // Row-vector 4x4 matrices (rows the axes, row 3 the position), as the title's records keep them.
 using Matrix = std::array<float, 16>;
+struct WeaponCollisionFrame { uint32_t parent; hitboxes::Frame local; };
+std::map<uint32_t,std::map<uint32_t,WeaponCollisionFrame>> g_weapon_frames;
 struct WeaponHold {
     struct Held {
         Matrix world; // where it is held
@@ -3255,6 +3299,7 @@ void pose_weapons(PPCContext& ctx, uint8_t* base, uint32_t model, uint32_t playe
     }
     if (const auto hold = g_weapon_holds.find(player); hold != g_weapon_holds.end()) hold->second.requested = false;
     if (records == 0) return;
+    g_weapon_frames[player].clear();
     // the points: position = p L R + t R + T (rows: L the local axes, R the parent's world axes; p the point's
     // local translation); the summoned weapons' first, then a slot none of them wrote from the first weapon with it
     uint32_t written = 0;
@@ -3271,6 +3316,14 @@ void pose_weapons(PPCContext& ctx, uint8_t* base, uint32_t model, uint32_t playe
                 origin[c] += value(local[12 + row]) * loadf(parent + 16 * row + 4 * c);
             }
         }
+        hitboxes::Frame collision_local;
+        for(int c=0;c<3;++c) {
+            collision_local.origin[c]=value(local[12+c]);
+            for(int row=0;row<3;++row)collision_local.axes[row][c]=value(local[4*row+c]);
+        }
+        // Keep the local sample, not its world position at model-posing time.
+        // The actor/parent may advance before the collision pass (f+1+2).
+        g_weapon_frames[player][weapon.pair]={weapon.parent,collision_local};
         for (const WeaponPoint& point : weapon.points) {
             if (point.slot >= kWeaponPoints || (only_unwritten && (written >> point.slot & 1))) continue;
             ctx.r[3] = load(model + kModelBones);
@@ -3348,6 +3401,130 @@ PPC_FUNC(sub_069D8B30) {
     ctx.lr = lr;
 }
 
+
+// ------------------------------------------------------------------ imported attack volumes
+PPC_FUNC(sub_03C7A600);
+PPC_FUNC(sub_03C74F50_orig);
+PPC_FUNC(sub_039C0948_orig);
+PPC_FUNC(sub_039C0508);
+PPC_FUNC(sub_039C0460_orig);
+namespace {
+struct ImportedPose {
+    uint32_t move=0,frame=0;
+    std::vector<std::optional<hitboxes::Vec>> current,previous;
+    std::vector<std::optional<hitboxes::Segment>> segments;
+};
+std::map<uint32_t,ImportedPose> g_imported_poses;
+thread_local std::optional<float> g_imported_radius;
+
+const std::vector<hitboxes::Shape>* imported_shapes(uint32_t player,uint32_t& key) {
+    const int k=player ? slot_of_id(load(player+kPlayerSelectId)) : -1;
+    const uint32_t move=player ? load(player+280) : 0;
+    if(k<0 || !move || g_added[k].collision_moves.empty())return nullptr;
+    key=load(move+0x34);
+    const auto found=g_added[k].collision_moves.find(key);
+    return found==g_added[k].collision_moves.end() ? nullptr : &found->second;
+}
+
+void prepare_imported_pose(PPCContext& ctx,uint8_t* base,uint32_t player) {
+    uint32_t key=0;
+    const auto* shapes=imported_shapes(player,key);
+    if(!shapes) { g_imported_poses.erase(player);return; }
+    const uint32_t skeleton=guest_call(ctx,base,sub_04E1A4C8,{player});
+    const uint32_t records=skeleton ? load(skeleton+kSkeletonRecords) : 0;
+    if(!records) { g_imported_poses.erase(player);return; }
+    static const uint32_t point_scratch=system_alloc(16);
+    auto point=[&](uint32_t index)->std::optional<hitboxes::Vec> {
+        for(int c=0;c<3;++c)storef(point_scratch+4*c,0);
+        guest_call(ctx,base,sub_03C7A600,{player,point_scratch,index});
+        return hitboxes::Vec{loadf(point_scratch),loadf(point_scratch+4),loadf(point_scratch+8)};
+    };
+    auto frame=[&](uint32_t index)->std::optional<hitboxes::Frame> {
+        hitboxes::Frame f;
+        const uint32_t at=records+kRecordSize*index+kRecordWorld;
+        for(int c=0;c<3;++c) {
+            f.origin[c]=loadf(at+48+4*c);
+            for(int r=0;r<3;++r)f.axes[r][c]=loadf(at+16*r+4*c);
+        }
+        return f;
+    };
+    auto weapon=[&](uint32_t pair)->std::optional<hitboxes::Frame> {
+        const auto owner=g_weapon_frames.find(player);
+        if(owner==g_weapon_frames.end())return std::nullopt;
+        const auto f=owner->second.find(pair);
+        if(f==owner->second.end())return std::nullopt;
+        auto parent=frame(f->second.parent);
+        return parent ? std::optional(hitboxes::compose(f->second.local,*parent)) : std::nullopt;
+    };
+    auto& pose=g_imported_poses[player];
+    const uint32_t now=load(player+212);
+    const bool reset=pose.move!=key || now<pose.frame || pose.current.size()!=shapes->size();
+    if(reset)pose=ImportedPose{};
+    if(!reset && now!=pose.frame)pose.previous=pose.current;
+    pose.current.resize(shapes->size());pose.previous.resize(shapes->size());pose.segments.resize(shapes->size());
+    pose.move=key;pose.frame=now;
+    for(size_t i=0;i<shapes->size();++i) {
+        const auto& s=(*shapes)[i];
+        auto a=hitboxes::position(s.a,point,frame,weapon,loadf(player+72));
+        auto b=s.b.kind==5 ? a : hitboxes::position(s.b,point,frame,weapon,loadf(player+72));
+        pose.current[i]=a;
+        if(!pose.previous[i])pose.previous[i]=a;
+        pose.segments[i]=a && b && pose.previous[i] ?
+            std::optional(hitboxes::segment(*a,*b,*pose.previous[i],s.height,s.b.kind==5)) : std::nullopt;
+    }
+}
+}
+
+PPC_FUNC(sub_03C74F50) {
+    const uint32_t player=ctx.r[3];
+    sub_03C74F50_orig(ctx,base);
+    const PPCContext saved=ctx;
+    prepare_imported_pose(ctx,base,player);
+    ctx=saved;
+}
+
+PPC_FUNC(sub_039C0460) {
+    if(!g_imported_radius) { sub_039C0460_orig(ctx,base);return; }
+    ctx.f[1]={*g_imported_radius,*g_imported_radius};
+}
+
+PPC_FUNC(sub_039C0948) {
+    const uint32_t player=ctx.r[3],defender=ctx.r[4],out=ctx.r[5],weapon_flag=ctx.r[6];
+    uint32_t key=0;
+    const auto* shapes=imported_shapes(player,key);
+    if(!shapes) { sub_039C0948_orig(ctx,base);return; }
+    // The pose builder and collision pass can share a logic-frame number while
+    // animation/parent transforms change between them. Refresh the current end
+    // of the sweep here; prepare_imported_pose freezes its previous end for the
+    // whole logic frame, including checks against multiple opponents.
+    prepare_imported_pose(ctx,base,player);
+    const auto found=g_imported_poses.find(player);
+    ctx.r[3]=0;
+    if(found==g_imported_poses.end())return;
+    static const uint32_t segment=system_alloc(24);
+    const auto& pose=found->second;
+    for(size_t i=0;i<shapes->size();++i) {
+        const auto& shape=(*shapes)[i];
+        if(!shape.active(load(player+212)) || !pose.segments[i])continue;
+        const auto& line=*pose.segments[i];
+        for(int c=0;c<3;++c) {
+            storef(segment+4*c,line.a[c]);storef(segment+12+4*c,line.b[c]);
+        }
+        struct RadiusScope {
+            std::optional<float> saved=g_imported_radius;
+            ~RadiusScope() { g_imported_radius=saved; }
+        } scope;
+        g_imported_radius=shape.radius;
+        const uint32_t hit=guest_call(ctx,base,sub_039C0508,{player,defender,out,1,segment,weapon_flag});
+        if(std::getenv("TTT2_TRACE_IMPORTED_HITBOXES")) {
+            const uint32_t move=load(player+280);
+            std::fprintf(stderr,"imported-hitbox player=%08X move=%s frame=%u shape=%zu radius=%.1f A=%.1f,%.1f,%.1f B=%.1f,%.1f,%.1f hit=%u\n",
+                player,reinterpret_cast<const char*>(guest_pointer(load(move))),load(player+212),i,shape.radius,
+                line.a[0],line.a[1],line.a[2],line.b[0],line.b[1],line.b[2],hit);
+        }
+        if(hit) { ctx.r[3]=1;return; }
+    }
+}
 
 // ------------------------------------------------------------------ 2D (Street Fighter style) arcs
 
@@ -3553,9 +3730,25 @@ PPC_FUNC(sub_03AE1704) { // defender r3, attacker r4, damage result r5
         store(shown + 0xb4, uint64_t{load(shown + 0xb4)} * percent / 100);
 }
 
+PPC_FUNC(sub_0404FF30_orig);
 PPC_FUNC(sub_03AE86A0_orig);
 PPC_FUNC(sub_03AE86A0) { // a move property (player r3, {id, value} r4, pass r5)
     const uint32_t player = ctx.r[3], id = load(ctx.r[4]);
+    if(id==clive::kGain || id==clive::kReset || id==clive::kContactGain || id==clive::kBegin) {
+        if(ctx.r[5]==0 && clive_player(player)) {
+            auto& gauge=g_clive_gauges[player];
+            const uint32_t value=load(ctx.r[4]+4);
+            // The full native evaluator dereferences both actors before its
+            // switch. A property has no opponent argument; calling it with 0
+            // crashed in 04E18548. Read its verified variable directly.
+            clive::property(gauge,id,value,load(player+clive::kContactVariable));
+            publish_clive_hud(player);
+            if(std::getenv("TTT2_TRACE_CLIVE"))
+                std::fprintf(stderr,"clive gauge player=%08X property=%04X value=%d points=%d attack=%d level=%u move=%08X frame=%u\n",
+                    player,id,static_cast<int32_t>(value),gauge.points,gauge.attack_points,gauge.level(),load(player+280),load(player+212));
+        }
+        return;
+    }
     if ((id == kArcProp || id == kArcBakedProp || id == kArcAirMoveProp) && ctx.r[5] == 0 &&
         slot_of_id(load(player + kPlayerSelectId)) >= 0)
         arc_property(player, id, load(ctx.r[4] + 4));
@@ -3578,10 +3771,43 @@ PPC_FUNC(sub_03AE86A0) { // a move property (player r3, {id, value} r4, pass r5)
                      player, trace_frame, trace_value, load(player + (id == 0x80a5 ? 0x628 : 0x63c)));
 }
 
+// Native moveset preparation classifies ids >=642/660 as special and marks
+// their cancel rows disabled. Recognize the private dynamic predicates here
+// as well as in the evaluator, retaining classification for every native id.
+static uint32_t classify_clive_requirements(uint32_t row,uint32_t first) {
+    for(uint32_t at=load(row+8);at;at+=8) {
+        const auto kind=load(at);
+        if(kind==690)return 0;
+        if(clive::native_special_requirement(kind,first))return 1;
+    }
+    return 1; // missing list stays disabled
+}
+PPC_FUNC(sub_0404F398) { ctx.r[3]=classify_clive_requirements(ctx.r[3],642); }
+PPC_FUNC(sub_0404F3D4) { ctx.r[3]=classify_clive_requirements(ctx.r[3],660); }
+
 PPC_FUNC(sub_0404FF30_orig);
 PPC_FUNC(sub_0404FF30) {
     const uint32_t requirement = ctx.r[3], player = ctx.r[4];
     const uint32_t kind = load(requirement);
+    if(kind==clive::kContinuation) {
+        const bool ready=clive_player(player) && ctx.r[5] &&
+            clive::continuation(g_clive_gauges[player],load(requirement+4));
+        if(std::getenv("TTT2_TRACE_CLIVE"))
+            std::fprintf(stderr,"clive level player=%08X threshold=%u frame=%u attack=%d ready=%u\n",
+                player,load(requirement+4),load(player+212),g_clive_gauges[player].attack_points,ready);
+        ctx.r[3]=ready;
+        return;
+    }
+    if(kind==clive::kGaugeRequirement) {
+        ctx.r[3]=clive_player(player) && g_clive_gauges[player].at_least(load(requirement+4));
+        return;
+    }
+    if(kind==clive::kGroundedVictim) {
+        if(!clive_player(player)) { ctx.r[3]=0;return; }
+        const uint32_t opponent=ctx.r[5];
+        ctx.r[3]=opponent && clive::grounded_victim(load(opponent+clive::kVictimHitLevel));
+        return;
+    }
     const bool trace = (std::getenv("TTT2_TRACE_AKUMA") || std::getenv("TTT2_TRACE_SPECIAL_CANCELS")) &&
         (kind == 307 || kind == 308 || ((kind == 46 || kind == 47) && load(player + 0x63c) != 0));
     const uint32_t wanted = trace ? load(requirement + 4) : 0;
@@ -3591,7 +3817,12 @@ PPC_FUNC(sub_0404FF30) {
     const bool noctis_trace = trace_noctis_air(player) &&
         (kind == 307 || kind == 308 || kind == 46 || kind == 47 || kind == 457 || kind == 0x8093 || kind == 0x80a5);
     const uint32_t noctis_wanted = noctis_trace ? load(requirement+4) : 0;
+    const bool clive_trace=std::getenv("TTT2_TRACE_CLIVE") && clive_player(player) &&
+        (kind==2 || kind==46) && (damage_move_name(player)=="Okm_LPRK" || damage_move_name(player)=="Okm_#1562");
     sub_0404FF30_orig(ctx, base);
+    if(clive_trace)
+        std::fprintf(stderr,"clive contact player=%08X frame=%u requirement=%u result=%u\n",
+            player,load(player+kPlayerFrame),kind,ctx.r[3]);
     if (noctis_trace)
         std::fprintf(stderr,"noctis-air CHECK player=%08X frame=%u req=%u wanted=%u input_latch=%u hit_latch=%u result=%u\n",
             player,load(player+kPlayerFrame),kind,noctis_wanted,load(player+0x63c),load(player+0x628),ctx.r[3]);
@@ -3866,6 +4097,12 @@ PPC_FUNC(sub_0414E7E4) {
     const bool trace = trace_eliza_assist(player) && trace_glide_move(player);
     const bool noctis_trace = trace_noctis_air(player);
     sub_0414E7E4_orig(ctx, base);
+    if(std::getenv("TTT2_TRACE_CLIVE") && clive_player(player) && ctx.r[3] &&
+       load(load(ctx.r[3]+8))==clive::kContinuation) {
+        const uint32_t row=ctx.r[3];
+        std::fprintf(stderr,"clive zantetsuken SELECT player=%08X threshold=%u target=%u frame=%u start=%u\n",
+            player,load(load(row+8)+4),load16(row+28),load(player+kPlayerFrame),load(row+24));
+    }
     if (noctis_trace && ctx.r[3]) {
         const uint32_t row = ctx.r[3];
         std::fprintf(stderr,"noctis-air SELECT player=%08X frame=%u buttons=%08X mode=%08X target=%u window=%u-%u start=%u\n",
@@ -3883,6 +4120,7 @@ PPC_FUNC(sub_0414E7E4) {
 PPC_FUNC(sub_04336854_orig);
 PPC_FUNC(sub_04336854) { // a fighter's physics, once a frame (r3; it recurses into the objects at +164, +168)
     const uint32_t player = ctx.r[3];
+    publish_clive_hud(player);
     finish_special_assist(ctx, base, player);
     trace_eliza_move(player);
     trace_noctis_air_step(player);

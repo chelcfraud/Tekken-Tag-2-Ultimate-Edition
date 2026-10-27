@@ -34,7 +34,7 @@ from ..movesets import REACTION_MOVE_FIELDS, TABLE_ORDER, TTT2
 from ..ttt2 import animation, motbin, motion
 from . import arcs
 from . import idmaps as M
-from . import tagsystem, tagcombo, specialcancels, move_overrides, retarget
+from . import tagsystem, tagcombo, specialcancels, move_overrides, retarget, clive
 
 T7_END, TT_END = M.END_REQ['t7'], M.END_REQ['ttt2']
 SEQ0 = 0x800D                       # a cancel direction from here on names an input sequence
@@ -461,6 +461,7 @@ class Converter:
             for i in range(len(self.cls)):
                 if re.search(own_moves, k.move_name(i)):
                     self.cls[i] = 'K'
+        clive.restore_throw_starters(self)
         self.effect_ids = set()                                    # the Tekken 7 effect ids the moves spawn
         self.effect_rows = []              # (property row, Tekken 7 effect id, frames left of its move or None)
         self.projectile_effects = {}                               # effect id -> its projectile (projectile_look)
@@ -553,6 +554,8 @@ class Converter:
     def map_req(self, c):
         """A requirement id of the fighter's game (or a property id inside a requirement list) -> TTT2's, or None."""
         g = self.game
+        if clive.enabled(self) and c in (clive.SOURCE_REQ, clive.SOURCE_GAIN):
+            return clive.GAUGE_REQ if c == clive.SOURCE_REQ else clive.GAIN
         if c == self.end:
             return TT_END
         if c in REQ_OVERRIDE[g]:
@@ -570,6 +573,8 @@ class Converter:
 
     def map_prop(self, p):
         g = self.game
+        if clive.enabled(self) and p == clive.SOURCE_GAIN:
+            return clive.GAIN
         # T7's meter delta (negative on EX/super entry); free-meter opt-ins
         # must not remap it onto an unrelated native property.
         if p == METER_COST[g] and self.defn.MOVESET.get('free_meter_specials'):
@@ -592,6 +597,8 @@ class Converter:
     def guarded(self, c):
         """The values of the fighter's id c pass the id maps as they are, so FIT tests them (a Tekken 8 fighter's)."""
         g = self.game
+        if clive.enabled(self) and c in (clive.SOURCE_REQ, clive.SOURCE_GAIN):
+            return False
         return g == 't8' and not (c in VALUE_KIND[g] or c in SOUND_PROPS[g] or c in PROJ_PROPS[g] or
                                   c in PROP_OVERRIDE[g] or c in REQ_OVERRIDE[g] or c == MOVE_PARAM[g] or
                                   c in CHAR_IS[g] or c in CHAR_IS_NOT[g])
@@ -1039,6 +1046,9 @@ class Converter:
         for f, idv, v, req in t7:
             if idv == 0 and f == 0:
                 break
+            if clive.enabled(self) and idv == clive.SOURCE_GAIN:
+                rows.append(clive.gain_row(self, f, v, req))
+                continue
             if req is not None:                             # Tekken 8: the row's own requirement list
                 r, ok = self.conv_reqs(req)
                 if not ok:
@@ -1625,6 +1635,7 @@ class Converter:
         self.stats['native running collision exits restored'] += tagsystem.restore_running_contacts(
             self.T, self.move_name, d.tables, d.move_name)
         move_overrides.apply(self)
+        clive.apply(self)
         specialcancels.apply(self)
         self.dismiss_when_hit()
         self.hold_thrown()
@@ -1634,6 +1645,7 @@ class Converter:
             self.T, tagsystem.landing_template(d.tables, d.aliases), nd, self.aliases)
         made = tagsystem.add_tag_assault(self.T, tagsystem.assault_template(d.tables, d.aliases), nd, self.move_name,
                                          self.string, self.defn.MOVESET.get('tag_assault_finish_hit', ()))
+        self.collision_twins = {twin:original for original,twin,_ in made}
         routes = {self.newidx[self.kn[parent]]: {self.newidx[self.kn[target]] for target in targets}
                   for parent, targets in self.defn.MOVESET.get('tag_assault_strings', {}).items()}
         self.stats['Tag Assault: string tag inputs restored'] += tagsystem.add_tag_assault_strings(self.T, made, routes)

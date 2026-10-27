@@ -176,6 +176,9 @@ private:
                        uint32_t levels, VkImageUsageFlags usage, VkImageViewType view_type, bool shared = false);
     void destroy_image(Image& image);
     void end_rendering();
+    void draw_clive_numerals(const Image& scan);
+    VkPipelineLayout numeral_layout_=VK_NULL_HANDLE;
+    std::map<VkFormat,VkPipeline> numeral_pipelines_;
     uint64_t stamp() { return ++events_; }
 
     // ------------------------------------------------- targets (targets.cpp)

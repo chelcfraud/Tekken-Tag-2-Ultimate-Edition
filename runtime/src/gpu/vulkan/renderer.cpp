@@ -312,7 +312,7 @@ void Renderer::copy_to_scan_buffer(const gx2::ColorBuffer& buffer, uint32_t scan
         }
         scan = create_image(t->image.format, VK_IMAGE_ASPECT_COLOR_BIT, width, height, 1, 1,
                             VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                VK_IMAGE_USAGE_SAMPLED_BIT,
+                                VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
                             VK_IMAGE_VIEW_TYPE_2D);
     }
     end_rendering();
@@ -323,6 +323,12 @@ void Renderer::copy_to_scan_buffer(const gx2::ColorBuffer& buffer, uint32_t scan
     region.extent = {width, height, 1};
     vkCmdCopyImage(cmd(), t->image.image, VK_IMAGE_LAYOUT_GENERAL, scan.image, VK_IMAGE_LAYOUT_GENERAL, 1, &region);
     barrier();
+    // Composite into the TV scan image so captures, interpolation and both
+    // presentation paths see the same meter. The native render target is kept
+    // intact, and the upload ring owns the pixels until the glyph draw completes.
+    const bool bgra=scan.format==VK_FORMAT_B8G8R8A8_UNORM || scan.format==VK_FORMAT_B8G8R8A8_SRGB;
+    const bool rgba=scan.format==VK_FORMAT_R8G8B8A8_UNORM || scan.format==VK_FORMAT_R8G8B8A8_SRGB;
+    if(index==0 && (bgra || rgba))draw_clive_numerals(scan);
     scan_valid_[index] = true;
     profile_mark("copy to scan buffer", t->address, width, height);
     if (tracing()) {

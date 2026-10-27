@@ -6,6 +6,39 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from ttt2char.convert import move_overrides as O, tagsystem as T, idmaps as M
 
+class GroundedStringReaction(unittest.TestCase):
+    def test_first_hit_retains_stagger_without_changing_shared_launches(self):
+        fields=('default','crouch','ch','crouch_ch','left','crouch_left','right','crouch_right','back','crouch_back')
+        from ttt2char.movesets import Moveset
+        source=Moveset();source.game='t8'
+        source.tables={
+            'moves':[dict(hit_condition=0),{},{}],
+            'hit_conditions':[dict(req=0,damage=5,reactions=0)],
+            'requirements':[dict(condition=M.END_REQ['t8'],param=0)],
+            'reactions':[dict.fromkeys(fields,1)]}
+        c=types.SimpleNamespace(k=source,kn={'df2':0},newidx={0:0},cls=['K','N','G'],
+            react_remap={'stagger':'launch'},alloc_ok=0,stats=collections.Counter())
+        c.T={'moves':[dict(hit_condition=0),dict(hit_condition=0)],
+            'hit_conditions':[dict(req=0,damage=5,reactions=0)],
+            'requirements':[dict(condition=T.TT_END,param=0)],
+            'reactions':[dict(default=99,block=88,downed=77,vertical_pushback=0)]}
+        c.name=lambda i:['df2','stagger','launch'][i]
+        c.target=lambda i: 99 if c.name(i) in c.react_remap else 10+i
+        c.link_queued=lambda _:None
+        def add(table,row):
+            c.T[table].append(row)
+            return len(c.T[table])-1
+        c.add=add
+        O.restore_ground_reaction(c,'df2')
+        hit=T.hits(c.T,c.T['moves'][0]['hit_condition'])[0]
+        result=c.T['reactions'][hit['reactions']]
+        self.assertTrue(all(result[f]==11 for f in fields))
+        self.assertEqual((result['block'],result['downed'],hit['damage']),(88,77,5))
+        self.assertEqual(c.T['moves'][1]['hit_condition'],0)
+        self.assertEqual(c.T['reactions'][0]['default'],99)
+        self.assertEqual(c.react_remap,{'stagger':'launch'})
+        self.assertEqual(c.alloc_ok,0)
+
 class BufferedString(unittest.TestCase):
     def test_direct_followup_keeps_counterhit_gate_and_timing(self):
         c=types.SimpleNamespace(game='t7',kn={'kick':0},newidx={0:0},stats=collections.Counter())

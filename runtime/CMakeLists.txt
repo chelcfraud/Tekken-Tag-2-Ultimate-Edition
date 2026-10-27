@@ -43,6 +43,7 @@ add_library(cafe_runtime OBJECT
     src/gpu/shader_dump.cpp
     src/gpu/tiling.cpp
     src/gpu/vulkan/context.cpp
+    src/gpu/vulkan/clive_hud.cpp
     src/gpu/vulkan/draw.cpp
     src/gpu/vulkan/formats.cpp
     src/gpu/vulkan/interpolate.cpp

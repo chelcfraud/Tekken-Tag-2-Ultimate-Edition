@@ -14,9 +14,11 @@ DONOR_ROW = 38
 MOVESET_SOURCE = 'tekken8'
 REQUIRE_OWN_MOVESET = True
 EXPERIMENTAL = True
-EXPERIMENTAL_WARNING = ('Experimental: does not work properly. Character and sword hitboxes, '
-                        'special moves and Eikon effects are incomplete.')
+EXPERIMENTAL_WARNING = ('Experimental: does not work properly. Character and sword hitboxes use full geometry; '
+                        'special moves and Eikon effects remain incomplete.')
 COLLISION_AUDIT = True
+FULL_HITBOXES = True
+REVISION = 6
 
 _MODEL = '/Game/Character/Item/model/unique/okm'
 TEKKEN8 = {
@@ -52,6 +54,10 @@ ART = {
 VOICE = 'okm'
 MOVESET = {
     'name': '[CLIVE]', 'drop_moves': r'^Okm_Direct$',
+    'zantetsuken': True,
+    # df+2 starts with a grounded stagger, then its second strike launches.
+    # The inferred remap to sDw_UP_00_ launches before the sword comes back.
+    'source_ground_reactions': ('Okm_t_srpF',),
     'direct': [(r'^La_KAM$', 'move', ['Okm_sKAM00_']),
                (r'^(la|mk)_s', 'anim', ['okm_s%02d' % i for i in range(3)]),
                (r'^la_w', 'anim', ['okm_w%02d' % i for i in range(3)])],
@@ -66,7 +72,7 @@ WEAPONS = [
     # Combat locations are the native R_Have/L_Have/R_Have2 frames.
     # The similarly numbered Weapon_Position asset controls visual traces;
     # its sword-tip/Eikon bones are NOT the combat-location mapping.
-    # Native offsets in each hitbox still need applying (COLLISION_AUDIT).
+    # FULL_HITBOXES applies each hitbox's local offsets in these combat frames.
     {'bone': 'R_Have', 'parent': 'TE_R_jnt', 'source_parent': 'R_Hand', 'pair': 4,
      'points': {121: ('R_Have', 0)}},
     {'bone': 'L_Have', 'parent': 'TE_L_jnt', 'source_parent': 'L_Hand', 'pair': 5,

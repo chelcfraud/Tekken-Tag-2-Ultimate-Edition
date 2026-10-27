@@ -8,6 +8,8 @@ STRING_VAR, STRING_SET = {'t7': 352, 't8': 358}, {'t7': 0x80a6, 't8': 0x80c5}
 
 
 def apply(c):
+    for source in c.defn.MOVESET.get('source_ground_reactions', ()):
+        restore_ground_reaction(c, source)
     for source in c.defn.MOVESET.get("free_air_screws", ()):
         free_air_screw(c, source)
     for source in c.defn.MOVESET.get("source_air_reactions", ()):
@@ -345,6 +347,48 @@ def counterhit_reaction(c, name, reaction):
         raise ValueError('no grounded hit entry for CH override: ' + name)
     move['hit_condition'] = TS.write(c.T, 'hit_conditions', hits)
     c.stats['explicit counter-hit reactions restored'] += changed
+
+
+def restore_ground_reaction(c, source):
+    """Keep a string's original grounded victim states instead of approximate remaps.
+
+    The first strike of a multi-hit launcher can be a grounded stagger. Mapping
+    that stagger to a generic launch lifts the victim out of the next strike.
+    Copy only the unconditional hit entry; air hits, guards and other users of
+    the source reaction retain their normal conversion.
+    """
+    from . import idmaps as M
+    fields = ('default', 'crouch', 'ch', 'crouch_ch', 'left', 'crouch_left',
+              'right', 'crouch_right', 'back', 'crouch_back')
+    original = c.k.tables['moves'][c.kn[source]]
+    matches = [ri for req, _, ri in M.hitconds(c.k, original['hit_condition']) if not req]
+    if len(matches) != 1:
+        raise ValueError('no unique grounded reaction: ' + source)
+    reaction = c.k.tables['reactions'][matches[0]]
+    names = {c.name(reaction[f]) for f in fields if 0 < reaction[f] < len(c.cls)}
+    saved = {n:c.react_remap.pop(n) for n in names if n in c.react_remap}
+    targets = {}
+    c.alloc_ok += 1
+    try:
+        for f in fields:
+            mid = reaction[f]
+            target = c.target(mid)
+            if target is None:
+                raise ValueError('cannot retain grounded victim state: ' + source + '/' + f)
+            targets[f] = target
+    finally:
+        c.alloc_ok -= 1
+        c.react_remap.update(saved)
+    c.link_queued({})
+    move = c.T['moves'][c.newidx[c.kn[source]]]
+    hits = [dict(h) for h in TS.hits(c.T, move['hit_condition'])]
+    grounded = [h for h in hits if not TS.reqs(c.T, h['req'])]
+    if len(grounded) != 1:
+        raise ValueError('no unique converted grounded reaction: ' + source)
+    row = dict(c.T['reactions'][grounded[0]['reactions']], **targets)
+    grounded[0]['reactions'] = c.add('reactions', row)
+    move['hit_condition'] = TS.write(c.T, 'hit_conditions', hits)
+    c.stats['explicit grounded string reactions restored'] += 1
 
 
 def on_hit_followup(c, source, target):

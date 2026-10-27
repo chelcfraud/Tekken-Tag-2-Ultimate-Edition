@@ -36,7 +36,7 @@ add_custom_command(TARGET ttt2-ultimate POST_BUILD
         "${TTT2_COMPILER_BIN}/libwinpthread-1.dll" "$<TARGET_FILE_DIR:ttt2-ultimate>")
 
 # Gameplay regression tests from the merged branch, built natively.
-foreach(game_test damage_scaling_test outfit_menu_test eliza_assist_test memory_model_test)
+foreach(game_test damage_scaling_test outfit_menu_test eliza_assist_test memory_model_test clive_state_test)
     add_executable(${game_test} tests/${game_test}.cpp)
     target_include_directories(${game_test} PRIVATE runtime/src runtime/include)
     target_compile_features(${game_test} PRIVATE cxx_std_20)
@@ -53,7 +53,7 @@ target_compile_features(wua_layers_test PRIVATE cxx_std_20)
 target_link_libraries(wua_layers_test PRIVATE windows_zarchive)
 add_test(NAME wua_layers_test COMMAND wua_layers_test)
 
-foreach(input_check input_test game_input_test weapon_collision_test)
+foreach(input_check input_test game_input_test weapon_collision_test clive_cancel_test)
     add_executable(${input_check} tests/${input_check}.cpp)
     target_link_libraries(${input_check} PRIVATE cafe_runtime ttt2_windows_generated)
 endforeach()
@@ -61,3 +61,4 @@ add_test(NAME input_test COMMAND input_test)
 set(TTT2_WINDOWS_TEST_RPX "${CMAKE_SOURCE_DIR}/local/wua-windows/0000000000000000_v0/code/Tekken.rpx" CACHE FILEPATH "RPX used by native gameplay input regression")
 add_test(NAME game_input_test COMMAND game_input_test "${TTT2_WINDOWS_TEST_RPX}")
 add_test(NAME weapon_collision_test COMMAND weapon_collision_test "${TTT2_WINDOWS_TEST_RPX}")
+add_test(NAME clive_cancel_test COMMAND clive_cancel_test "${TTT2_WINDOWS_TEST_RPX}")

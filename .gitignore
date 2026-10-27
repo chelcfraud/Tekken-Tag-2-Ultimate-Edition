@@ -31,6 +31,8 @@ character.ini
 *.mop
 *.moveset
 *.motion
+*.hitboxes
+*.zanhud
 *.mvl
 *.bin
 *.ofs

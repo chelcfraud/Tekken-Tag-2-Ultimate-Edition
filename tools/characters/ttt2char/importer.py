@@ -371,6 +371,12 @@ def _run(name, tekken7, movesets, game, out, log, make_shared, files, tekken8):
     contents.update(banks)
     contents.update(pictures)
     contents.update(effect_files)
+    if saved8 is not None and getattr(d,'CODE',None)=='clv':
+        from .tekken8 import clive_hud
+        contents['.zanhud']=clive_hud.build(source.store)
+    if '.hitboxes' in contents:
+        from .tekken8 import hitboxes
+        contents['.hitboxes'] = hitboxes.bind(contents['.hitboxes'],moves)
     if mvl is not None:
         contents['.mvl'] = mvl
     if mop is not None:
@@ -512,6 +518,10 @@ def _converted_tekken8_moveset(source, archives, d, place, saved, donor_xml, eff
                  tag_states, bon)
         c.voices8 = voices8 or {}           # her moves' Tekken 8 voices -> the TTT2 voices of the same lines
         c.run()
+        full_hitboxes = None
+        if getattr(d, 'FULL_HITBOXES', False):
+            from .tekken8 import hitboxes as full_shapes
+            full_hitboxes = full_shapes.build(c,animations.converter,bone.read(bon))
         moves, motions = c.write()
     finally:
         own_bank.close()
@@ -546,10 +556,19 @@ def _converted_tekken8_moveset(source, archives, d, place, saved, donor_xml, eff
         sub('WARNING: the command list could not be converted (%s): Practice shows %s\'s' % (error, d.DONOR))
     if mvl is None:
         sub('no command list of %s\'s own: Practice shows %s\'s' % (d.NAME, d.DONOR))
+    if full_hitboxes is not None:
+        effect_files['.hitboxes'] = full_hitboxes
+        sub('full attack volumes exported for native collision (%d bytes)' % len(full_hitboxes))
     if getattr(d, 'COLLISION_AUDIT', False):
         from .tekken8 import collision_audit
         audit = collision_audit.report(c)
+        if full_hitboxes is not None:
+            audit['status'] = 'native_collision_sidecar_exported'
+            audit['description'] = ('Full active shapes are in the native collision sidecar. '
+                                    'Legacy-summary differences below are diagnostic comparisons only.')
+            audit['runtime_geometry'] = dict(file=d.CODE+'.hitboxes',format=1,
+                moves=struct.unpack_from('<I',full_hitboxes,12)[0])
         effect_files['conversion-report.json'] = json.dumps(audit, indent=2).encode('utf-8')
-        sub('WARNING: collision audit (%s): %s; see conversion-report.json in the pack'
+        sub('collision audit (%s): %s; see conversion-report.json in the pack'
             % (audit['status'], audit['affected_moves']))
     return moves, motions, xml, effect_files, mvl
