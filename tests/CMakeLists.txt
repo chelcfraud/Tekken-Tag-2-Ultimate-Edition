@@ -171,6 +171,12 @@ target_compile_features(clive_state_test PRIVATE cxx_std_20)
 target_compile_options(clive_state_test PRIVATE -UNDEBUG -Wall -Wextra)
 add_test(NAME clive_state_test COMMAND clive_state_test)
 
+add_executable(clive_practice_menu_test clive_practice_menu_test.cpp)
+target_include_directories(clive_practice_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/runtime/src)
+target_compile_features(clive_practice_menu_test PRIVATE cxx_std_20)
+target_compile_options(clive_practice_menu_test PRIVATE -UNDEBUG -Wall -Wextra)
+add_test(NAME clive_practice_menu_test COMMAND clive_practice_menu_test)
+
 # Eliza's scoped native Tag Assault lifetime; no game assets required.
 add_executable(eliza_assist_test eliza_assist_test.cpp)
 target_include_directories(eliza_assist_test PRIVATE ${CMAKE_SOURCE_DIR}/runtime/src)

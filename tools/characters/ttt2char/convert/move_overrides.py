@@ -8,6 +8,10 @@ STRING_VAR, STRING_SET = {'t7': 352, 't8': 358}, {'t7': 0x80a6, 't8': 0x80c5}
 
 
 def apply(c):
+    from . import clive
+    clive.restore_air_string(c)
+    clive.restore_pickup_hurtbox(c)
+    clive.restore_charged_string(c)
     for source in c.defn.MOVESET.get('source_ground_reactions', ()):
         restore_ground_reaction(c, source)
     for source in c.defn.MOVESET.get("free_air_screws", ()):

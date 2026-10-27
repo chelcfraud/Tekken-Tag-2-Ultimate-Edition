@@ -18,7 +18,7 @@ EXPERIMENTAL_WARNING = ('Experimental: does not work properly. Character and swo
                         'special moves and Eikon effects remain incomplete.')
 COLLISION_AUDIT = True
 FULL_HITBOXES = True
-REVISION = 6
+REVISION = 12
 
 _MODEL = '/Game/Character/Item/model/unique/okm'
 TEKKEN8 = {
@@ -55,6 +55,14 @@ VOICE = 'okm'
 MOVESET = {
     'name': '[CLIVE]', 'drop_moves': r'^Okm_Direct$',
     'zantetsuken': True,
+    'clive_air_string': True,
+    'clive_pickup_hurtbox': True,
+    'clive_charged_string': True,
+    'clive_f2_contact_margin': True,
+    # Shared reactions must survive in every hit list, including conditional
+    # f+2 hits, unnamed string variants and guard slots. Approximate alignment
+    # mapped these to motOrigin, an airborne hit, or Fall_sKAM.
+    'preserve_reactions': ('sDm_kawa30', 'sDm_kawa30G', 'sGrd_kakaStA22G', 'sDm_sjk02tk5'),
     # df+2 starts with a grounded stagger, then its second strike launches.
     # The inferred remap to sDw_UP_00_ launches before the sword comes back.
     'source_ground_reactions': ('Okm_t_srpF',),

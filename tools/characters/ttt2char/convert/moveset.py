@@ -657,7 +657,8 @@ class Converter:
         n = self.name(mid)
         if n in self.dn:
             return self.dn[n]
-        r = self.react_remap.get(n) if n not in PRESERVE_T7_REACTIONS else None
+        preserve = n in PRESERVE_T7_REACTIONS or n in self.defn.MOVESET.get('preserve_reactions', ())
+        r = self.react_remap.get(n) if not preserve else None
         if r and r in self.dn:
             self.stats['target remapped (Tekken 7-only move -> the TTT2 move in its place)'] += 1
             return self.dn[r]

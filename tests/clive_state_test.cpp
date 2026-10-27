@@ -20,6 +20,44 @@ int main(int argc,char** argv) {
     assert(clive::grounded_victim(1) && clive::grounded_victim(2));
     assert(!clive::grounded_victim(0) && !clive::grounded_victim(0x400));
     Gauge p1,p2;
+    for(unsigned level=1;level<=5;++level) {
+        Gauge selected;selected.set_level(level);
+        assert(selected.level()==level && selected.points==50*int(level-1));
+        assert(selected.attack_points==selected.points);
+    }
+    Gauge bounded;bounded.set_level(0);assert(bounded.level()==1);
+    bounded.set_level(6);assert(bounded.level()==5);
+    clive::Charge charge;
+    charge.begin(42,21,true);
+    for(unsigned frame=1;frame<21;++frame) {
+        charge.update(42,frame,true);assert(!charge.ready(bounded,42,200));
+    }
+    charge.update(42,21,true);assert(charge.ready(bounded,42,200));
+    charge.update(42,26,false);assert(charge.ready(bounded,42,200)); // release after full charge
+    for(unsigned level=1;level<5;++level) {Gauge low;low.set_level(level);assert(!charge.ready(low,42,200));}
+    assert(!charge.ready(bounded,42,150));
+    charge.begin(42,21,true);charge.update(42,10,false);charge.update(42,21,true);
+    assert(!charge.ready(bounded,42,200)); // releasing then pressing again cannot charge
+    charge.begin(42,21,false);charge.update(42,21,true);assert(!charge.ready(bounded,42,200));
+    charge.begin(42,21,true);charge.update(43,5,true);assert(!charge.ready(bounded,42,200));
+    assert(clive::runtime_requirement(clive::kHeldCharge));
+    assert(!clive::native_special_requirement(clive::kHeldCharge,642));
+    Gauge resource;resource.set_level(5);
+    charge.begin(42,21,true);charge.update(42,21,true);
+    assert(!charge.confirm_guard_break(resource,42,99)); // no confirmed victim
+    assert(resource.points==200); // a whiff or unguarded hit never runs the victim marker
+    charge.opponent=99;
+    assert(!charge.confirm_guard_break(resource,42,98));
+    assert(!charge.confirm_guard_break(resource,43,99));
+    assert(charge.confirm_guard_break(resource,42,99));
+    assert(resource.points==150 && resource.level()==4 && resource.attack_points==150);
+    assert(!charge.confirm_guard_break(resource,42,99)); // duplicate passes pay once
+    assert(resource.points==150 && charge.ready(resource,42,200)); // same attack retains its reaction
+    charge.begin(42,21,true);charge.update(42,21,true);charge.opponent=99;
+    assert(!charge.ready(resource,42,200) && !charge.confirm_guard_break(resource,42,99));
+    resource.set_level(5);charge.begin(42,21,true);charge.update(42,10,false);
+    charge.update(42,21,true);charge.opponent=99;
+    assert(!charge.confirm_guard_break(resource,42,99) && resource.points==200);
     assert(p1.level()==1 && !p1.at_least(50));
     // Whiffs do not call add; five source 1+4 hits unlock level 2.
     for(int n=0;n<4;++n)p1.add(10);

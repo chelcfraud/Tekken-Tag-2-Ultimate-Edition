@@ -60,6 +60,25 @@ class FullHitboxes(unittest.TestCase):
         self.assertEqual(a[:2],(2,5))
         np.testing.assert_allclose(a[5:8],(0,900,0))
 
+    def test_clive_f2_contact_adaptation_covers_variants_but_not_other_attacks(self):
+        c=self.converter([shape(15,15,loc2=121),shape(15,15,radius=20)])
+        c.defn=types.SimpleNamespace(MOVESET={'clive_f2_contact_margin':True})
+        c.kn={'Okm_rp00F':0}
+        c.k.anim_ref=lambda i:(123 if i<2 else 456,False)
+        c.newidx={0:0,1:1,2:2};c.collision_twins={}
+        data=hitboxes.build(c,self.a,self.target)
+        at=16
+        for i in range(3):
+            _,count=struct.unpack_from('<II',data,at);at+=8
+            for _ in range(count):
+                first,last,radius,height=hitboxes.SHAPE.unpack_from(data,at)
+                self.assertEqual((first,last),(15,16) if i<2 else (15,15))
+                self.assertEqual(radius,100. if i<2 else (0. if _==0 else 20.))
+                at+=hitboxes.SHAPE.size+2*hitboxes.ENDPOINT.size
+        c.defn.MOVESET.clear()
+        original=hitboxes.build(c,self.a,self.target)
+        self.assertEqual(hitboxes.SHAPE.unpack_from(original,24)[:3],(15,15,0.))
+
     def test_virtual_midpoint_is_not_replaced_by_limb_endpoint(self):
         endpoint=hitboxes.Endpoints(self.converter([]),self.a,self.target).endpoint(139,(0,0,0))
         self.assertEqual(endpoint[:3],(3,11,12))

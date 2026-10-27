@@ -79,14 +79,27 @@ def build(c, animation_converter, target):
     exact in the sidecar. Native guards/damage/hit latches remain in charge.
     """
     endpoints = Endpoints(c,animation_converter,target)
+    # Native retargeting puts f+2's blade up to ~100 mm below its T8 pose.
+    # A compatibility margin and one trailing contact frame make the descending
+    # slash usable as a juggle pickup. Opt in only for Clive's first f+2 clip;
+    # follow-ups, damage and reactions keep their own data. This is gameplay
+    # adaptation, not a claim that these were the source's authored dimensions.
+    f2 = (getattr(c,'defn',None) is not None and
+          c.defn.MOVESET.get('clive_f2_contact_margin',False))
+    f2_ref = c.k.anim_ref(c.kn['Okm_rp00F']) if f2 else None
     by_index = {}
     for source,index in sorted(c.newidx.items()):
         shapes = []
+        adapt_f2 = f2 and c.k.anim_ref(source)==f2_ref
         for h in c.k.hitboxes(source):
             if not (h.first or h.last):
                 continue
             if h.first > h.last or not np.isfinite([h.radius,h.height,*h.a,*h.b]).all():
                 raise InputError('invalid collision shape in move %d' % source)
+            if adapt_f2:
+                if (h.first,h.last)!=(15,15):
+                    raise InputError('Clive f+2 contact layout changed')
+                h=h._replace(last=16,radius=max(h.radius,100.))
             shapes.append((h.first,h.last,h.radius,h.height,
                            endpoints.endpoint(h.loc,h.a),
                            endpoints.endpoint(h.loc2,h.b) if h.loc2 else None))

@@ -3,6 +3,7 @@
 #include "cafe/ppc_ops.h"
 #include "cafe/runtime.h"
 #include "title/imported_hitboxes.h"
+#include "title/imported_hurtbox.h"
 #include <zlib.h>
 #include <array>
 #include <cstdio>
@@ -53,6 +54,39 @@ int main(int argc, char** argv) {
         check(!collision({150,1000,0,150,1000,1150},body), "thin blade must miss outside body radius");
         check(collision({150,1000,0,150,1000,1150},body,60), "explicit blade radius must extend contact");
         namespace hb=cafe::title::hitboxes;
+        // Approximate reconstructed Clive f+2 blade samples 14 and 15 (mm).
+        // The slash moves from high/left to down/forward in a single sample.
+        const std::array<float,6> f2_before{-64,1146,1519,-736,1835,1792};
+        const std::array<float,6> f2_after{264,810,1644,20,1137,2557};
+        const std::array<float,6> juggle_body{150,1000,2300,100,10000,200};
+        check(!collision(f2_before,juggle_body) && collision(f2_after,juggle_body),
+            "f+2 trailing pose must cover the descending slash's forward contact");
+        const std::array<float,6> marginal_body{20,1320,2557,0,3600,120};
+        check(!collision(f2_after,marginal_body) && collision(f2_after,marginal_body,100),
+            "f+2 contact margin must cover the measured vertical retargeting discrepancy");
+        check(!collision(f2_after,{20,1600,2557,0,3600,120},100),
+            "f+2 margin must still miss an opponent well above the blade");
+        hb::AuxiliaryHurtbox pickup;
+        pickup.property(123,hb::kHurtClear,0);
+        check(!pickup.active(123),"pickup must not be active before its property window");
+        pickup.property(123,hb::kHurtX,0);
+        pickup.property(123,hb::kHurtYZ,950);
+        pickup.property(123,hb::kHurtSize,0x00640190);
+        // The falling body alone is out of reach. Its authored auxiliary
+        // capsule extends toward the attacker, following the victim's facing.
+        const hb::Frame falling{{0,400,2700},{{{-1,0,0},{0,1,0},{0,0,-1}}}};
+        const auto pickup_body=pickup.capsule(falling);
+        check(pickup.active(123) && !pickup.active(124),"auxiliary capsule must belong to its reaction");
+        check(pickup_body==std::array<float,6>{0,400,1750,100,160000,800},
+            "counter-hit capsule must retain its source offset and dimensions");
+        const std::array<float,6> falling_body{0,400,2700,100,10000,200};
+        const std::array<float,6> followup{0,800,1200,0,800,2000};
+        check(!collision(followup,falling_body) && collision(followup,pickup_body),
+            "authored pickup capsule must permit a falling follow-up without extending the sword");
+        pickup.property(123,hb::kHurtClear,0);
+        check(!pickup.active(123),"pickup must stop at the source disable frame");
+        pickup.property(124,hb::kHurtSize,0x00640190);
+        check(pickup.offset==hb::Vec{},"a new reaction must not inherit an old offset");
         // An advancing actor must carry the sword into the follow-up. Baking
         // its world frame before the actor moves leaves the blade out of range.
         const hb::Frame local_grip{{0,1000,0},{{{1,0,0},{0,0,1},{0,-1,0}}}};

@@ -2,8 +2,10 @@
 #include "title/eliza_assist.h"
 #include "title/damage_scaling.h"
 #include "title/imported_hitboxes.h"
+#include "title/imported_hurtbox.h"
 #include "title/clive_state.h"
 #include "title/clive_hud.h"
+#include "title/clive_practice_menu.h"
 #include "outfit_menu.h"
 
 #include "cafe/ppc_ops.h"
@@ -1185,9 +1187,28 @@ void prepare_costumes(const Pack& pack, uint32_t donor, size_t slot) {
 // wait (the pack's tiger: far below the floor).
 constexpr uint32_t kPlayerSelectId = 84, kPlayerAnimator = 7944;
 std::map<uint32_t,clive::Gauge> g_clive_gauges;
+std::map<uint32_t,clive::Charge> g_clive_charges;
+std::map<uint32_t,unsigned> g_clive_practice_levels;
+bool clive_practice() {
+    auto object=load(0x10872CB8);
+    auto match=object?load(object+228):0;
+    auto mode=match?load(match+228):0;
+    return mode && (load(mode+444)==4 || load(mode+444)==5);
+}
 bool clive_player(uint32_t player) {
     const int k=player ? slot_of_id(load(player+kPlayerSelectId)) : -1;
     return k>=0 && g_added[k].code=="clv";
+}
+std::vector<uint32_t> practice_clives() {
+    std::vector<uint32_t> players;
+    if(!clive_practice())return players;
+    const auto side=load(0x108D1C60+100);
+    if(side>1)return players;
+    auto first=load(0x1087FB60+4*side);
+    if(first && clive_player(first))players.push_back(first);
+    auto partner=first?load(first+172):0;
+    if(partner && partner!=first && clive_player(partner))players.push_back(partner);
+    return players;
 }
 void publish_clive_hud(uint32_t player) {
     // The four native fighters live in a fixed array, indexed by actor+0x4c
@@ -1414,6 +1435,21 @@ void prepare_roster() {
     }
     if (!g_active) return;
     add_shared(directory / "shared");
+    // The native BX01 menu and Xtal handlers keep the normal Practice UI.
+    if(std::any_of(g_added.begin(),g_added.end(),[](const Added& f){return f.active && f.code=="clv";})) {
+        const auto located=locate_entries();
+        if(const auto original=title_entry(located,clive::practice_menu::kResource)) {
+            if(const auto contents=archive::unpack(original->first,clive::practice_menu::kResource)) {
+                try {
+                    const auto menu=clive::practice_menu::patch(*contents);
+                    uint8_t flags[8];std::copy(original->second.begin(),original->second.end(),flags);
+                    if(!vfs::set_archive_entries("content/hdd/data100",{{clive::practice_menu::kResource,
+                        archive::pack(menu,clive::practice_menu::kResource,flags)}}))
+                        throw std::runtime_error("archive overlay failed");
+                } catch(const std::exception& e) {std::fprintf(stderr,"ttt2: Clive Practice menu: %s\n",e.what());}
+            }
+        }
+    }
     patch_sounds();
     place_cells();
     if (std::getenv("TTT2_TRACE_ROSTER") && !std::getenv("TTT2_INPUT_SCRIPT")) {
@@ -1442,6 +1478,70 @@ void prepare_roster() {
 
 using namespace cafe;
 using namespace cafe::title;
+
+PPC_FUNC(sub_085A919C_orig); // MenuSetVisible(bool, name)
+PPC_FUNC(sub_085A9420);      // MenuSetFocusable(bool, name)
+PPC_FUNC(sub_085AB7FC_orig); // MenuSelectValueSetCursor(index, name)
+namespace {
+uint32_t g_clive_practice_widget=0;
+unsigned g_clive_practice_cursor=0;
+bool g_clive_practice_initializing=false,g_clive_practice_setting=false;
+bool practice_name(uint32_t address,const char* name) {
+    return address && std::strcmp(reinterpret_cast<const char*>(guest_pointer(address)),name)==0;
+}
+void commit_clive_practice(unsigned cursor,bool confirmed=false) {
+    if(g_clive_practice_initializing || !clive_practice() || cursor>4 || (!confirmed && cursor==g_clive_practice_cursor))return;
+    g_clive_practice_cursor=cursor;
+    for(auto player:practice_clives()) {
+        g_clive_gauges[player].set_level(cursor+1);
+        g_clive_practice_levels[player]=cursor+1;
+        publish_clive_hud(player);
+    }
+}
+}
+// The Advanced Settings focus handler always sets this native row's visibility
+// before laying out the menu. Give Clive's added row the same layout lifecycle.
+PPC_FUNC(sub_085A919C) {
+    const bool advanced=practice_name(ctx.r[4],"MenuItemPracticeMenu01-09-01");
+    sub_085A919C_orig(ctx,base);
+    if(!advanced)return;
+    const auto players=practice_clives();
+    const PPCContext saved=ctx;
+    static const auto item=guest_string(clive::practice_menu::kItem);
+    static const auto value=guest_string(clive::practice_menu::kValue);
+    ctx.r[3]=!players.empty();ctx.r[4]=item;sub_085A919C_orig(ctx,base);
+    ctx.r[3]=!players.empty();ctx.r[4]=item;sub_085A9420(ctx,base);
+    ctx.r[3]=!players.empty();ctx.r[4]=value;sub_085A919C_orig(ctx,base);
+    if(!players.empty()) {
+        g_clive_practice_cursor=g_clive_gauges[players.front()].level()-1;
+        g_clive_practice_initializing=true;g_clive_practice_setting=true;
+        ctx.r[3]=g_clive_practice_cursor;ctx.r[4]=value;sub_085AB7FC_orig(ctx,base);
+        g_clive_practice_setting=false;g_clive_practice_initializing=false;
+    }
+    ctx=saved;
+}
+PPC_FUNC(sub_085AB7FC) {
+    const bool custom=practice_name(ctx.r[4],clive::practice_menu::kValue);
+    const bool previous=g_clive_practice_setting;
+    g_clive_practice_setting=custom;
+    sub_085AB7FC_orig(ctx,base);
+    g_clive_practice_setting=previous;
+}
+PPC_FUNC(sub_0455B59C_orig);
+PPC_FUNC(sub_0455B59C) {
+    if(g_clive_practice_setting)g_clive_practice_widget=ctx.r[3];
+    if(g_clive_practice_widget && ctx.r[3]==g_clive_practice_widget && clive_practice()) {
+        ctx.r[4]=std::min(ctx.r[4],4u);
+        commit_clive_practice(ctx.r[4],g_clive_practice_setting);
+    }
+    sub_0455B59C_orig(ctx,base);
+}
+PPC_FUNC(sub_0455B584_orig);
+PPC_FUNC(sub_0455B584) {
+    const bool custom=g_clive_practice_widget && ctx.r[3]==g_clive_practice_widget;
+    sub_0455B584_orig(ctx,base);
+    if(custom)commit_clive_practice(ctx.r[3]);
+}
 
 // ------------------------------------------------------------------ calls into the title
 
@@ -1679,6 +1779,9 @@ PPC_FUNC(sub_033D5BBC_orig);
 PPC_FUNC(sub_033D5BBC) {
     const uint32_t player = ctx.r[3];
     g_clive_gauges.erase(player); // a new actor must not inherit a previous match's gauge
+    g_clive_charges.erase(player);
+    g_clive_practice_levels.erase(player);
+    g_clive_practice_widget=0;
     const int k = slot_of_record(load(player + kPlayerRecord));
     if (std::getenv("TTT2_TRACE_ROSTER")) {
         std::fprintf(stderr, "ttt2: roster: player %08X set up: select id %u, record %08X (slot %d), row %u\n", player,
@@ -3415,6 +3518,7 @@ struct ImportedPose {
     std::vector<std::optional<hitboxes::Segment>> segments;
 };
 std::map<uint32_t,ImportedPose> g_imported_poses;
+std::map<uint32_t,hitboxes::AuxiliaryHurtbox> g_auxiliary_hurtboxes;
 thread_local std::optional<float> g_imported_radius;
 
 const std::vector<hitboxes::Shape>* imported_shapes(uint32_t player,uint32_t& key) {
@@ -3488,7 +3592,7 @@ PPC_FUNC(sub_039C0460) {
     ctx.f[1]={*g_imported_radius,*g_imported_radius};
 }
 
-PPC_FUNC(sub_039C0948) {
+static void imported_attack_collision(PPCContext& ctx,uint8_t* base) {
     const uint32_t player=ctx.r[3],defender=ctx.r[4],out=ctx.r[5],weapon_flag=ctx.r[6];
     uint32_t key=0;
     const auto* shapes=imported_shapes(player,key);
@@ -3524,6 +3628,45 @@ PPC_FUNC(sub_039C0948) {
         }
         if(hit) { ctx.r[3]=1;return; }
     }
+}
+
+PPC_FUNC(sub_039C0948) {
+    const PPCContext input=ctx;
+    const uint32_t defender=ctx.r[4];
+    imported_attack_collision(ctx,base);
+    if(ctx.r[3] || !defender)return;
+    const auto found=g_auxiliary_hurtboxes.find(defender);
+    if(found==g_auxiliary_hurtboxes.end() || !found->second.active(load(defender+280)))return;
+    const uint32_t skeleton=guest_call(ctx,base,sub_04E1A4C8,{defender});
+    const uint32_t root=skeleton ? load(skeleton+kSkeletonRecords) : 0;
+    if(!root)return;
+    hitboxes::Frame trans;
+    // T8's auxiliary capsule is relative to Trans, above the animated Rot
+    // (hips). Remove the native hips' local rotation: P = L^T W. Keeping
+    // their world rotation would turn this pickup volume into the floor.
+    for(int c=0;c<3;++c) {
+        trans.origin[c]=loadf(root+kRecordWorld+48+4*c);
+        for(int r=0;r<3;++r)
+            for(int k=0;k<3;++k)
+                trans.axes[r][c]+=loadf(root+16*k+4*r)*loadf(root+kRecordWorld+16*k+4*c);
+    }
+    for(auto& axis:trans.axes) {
+        const float length=std::hypot(axis[0],axis[1],axis[2]);
+        if(!(length>0.00001f))return;
+        for(float& value:axis)value/=length;
+    }
+    const auto capsule=found->second.capsule(trans);
+    // Native code has fourteen slots. After those miss, test the auxiliary
+    // volume through the same evaluator and restore the temporary slot.
+    // This keeps invulnerability, impact position and hit-result handling.
+    std::array<uint32_t,6> saved;
+    for(int i=0;i<6;++i) {
+        saved[i]=load(defender+0x878+4*i);
+        storef(defender+0x878+4*i,capsule[i]);
+    }
+    ctx=input;
+    imported_attack_collision(ctx,base);
+    for(int i=0;i<6;++i)store(defender+0x878+4*i,saved[i]);
 }
 
 // ------------------------------------------------------------------ 2D (Street Fighter style) arcs
@@ -3734,6 +3877,26 @@ PPC_FUNC(sub_0404FF30_orig);
 PPC_FUNC(sub_03AE86A0_orig);
 PPC_FUNC(sub_03AE86A0) { // a move property (player r3, {id, value} r4, pass r5)
     const uint32_t player = ctx.r[3], id = load(ctx.r[4]);
+    if(id==clive::kGuardBroken) {
+        // This marker runs on the victim, including native characters, only
+        // after the grounded charged block reaction has actually been chosen.
+        if(ctx.r[5]==0)for(auto& [attacker,charge]:g_clive_charges) {
+            if(clive_player(attacker) && charge.confirm_guard_break(g_clive_gauges[attacker],load(attacker+280),player))
+                publish_clive_hud(attacker);
+        }
+        return;
+    }
+    if(id==clive::kChargeBegin) {
+        if(ctx.r[5]==0 && clive_player(player))
+            g_clive_charges[player].begin(load(player+280),load(ctx.r[4]+4),(load(player+2032)&0x200)!=0);
+        return;
+    }
+    if(id>=hitboxes::kHurtX && id<=hitboxes::kHurtClear) {
+        // A forced reaction runs on the victim, including native fighters.
+        if(ctx.r[5]==0)
+            g_auxiliary_hurtboxes[player].property(load(player+280),id,load(ctx.r[4]+4));
+        return;
+    }
     if(id==clive::kGain || id==clive::kReset || id==clive::kContactGain || id==clive::kBegin) {
         if(ctx.r[5]==0 && clive_player(player)) {
             auto& gauge=g_clive_gauges[player];
@@ -3742,6 +3905,10 @@ PPC_FUNC(sub_03AE86A0) { // a move property (player r3, {id, value} r4, pass r5)
             // switch. A property has no opponent argument; calling it with 0
             // crashed in 04E18548. Read its verified variable directly.
             clive::property(gauge,id,value,load(player+clive::kContactVariable));
+            if(id==clive::kReset && clive_practice()) {
+                const auto level=g_clive_practice_levels.find(player);
+                if(level!=g_clive_practice_levels.end())gauge.set_level(level->second);
+            }
             publish_clive_hud(player);
             if(std::getenv("TTT2_TRACE_CLIVE"))
                 std::fprintf(stderr,"clive gauge player=%08X property=%04X value=%d points=%d attack=%d level=%u move=%08X frame=%u\n",
@@ -3800,6 +3967,14 @@ PPC_FUNC(sub_0404FF30) {
     }
     if(kind==clive::kGaugeRequirement) {
         ctx.r[3]=clive_player(player) && g_clive_gauges[player].at_least(load(requirement+4));
+        return;
+    }
+    if(kind==clive::kHeldCharge) {
+        if(!clive_player(player)) {ctx.r[3]=0;return;}
+        auto& charge=g_clive_charges[player];
+        charge.update(load(player+280),load(player+212),(load(player+2032)&0x200)!=0);
+        ctx.r[3]=charge.ready(g_clive_gauges[player],load(player+280),load(requirement+4));
+        if(ctx.r[3] && ctx.r[5])charge.opponent=ctx.r[5];
         return;
     }
     if(kind==clive::kGroundedVictim) {
@@ -4120,6 +4295,8 @@ PPC_FUNC(sub_0414E7E4) {
 PPC_FUNC(sub_04336854_orig);
 PPC_FUNC(sub_04336854) { // a fighter's physics, once a frame (r3; it recurses into the objects at +164, +168)
     const uint32_t player = ctx.r[3];
+    if(auto charge=g_clive_charges.find(player);charge!=g_clive_charges.end())
+        charge->second.update(load(player+280),load(player+212),(load(player+2032)&0x200)!=0);
     publish_clive_hud(player);
     finish_special_assist(ctx, base, player);
     trace_eliza_move(player);
