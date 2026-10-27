@@ -997,6 +997,33 @@ carries the colour grid and both palettes). The pack holds Namco's assets:
 the importer refuses to write it inside this repository, and `.gitignore`
 keeps the games' file types out.
 
+## Imported attack volumes and Clive mechanics
+
+Clive's opt-in `FULL_HITBOXES` path exports all active Tekken 8 shapes to a
+CRC-bound `.hitboxes` sidecar after moveset conversion. The runtime resolves
+body points, calibrated joint offsets, combat weapon frames, virtual limb
+midpoints and ground-relative points against the native collision skeleton.
+Weapon samples remain local until the collision pass so actor advancement
+cannot leave a follow-up sword strike behind. Per-frame pose history retains
+swept attacks, and Tag Assault twins inherit their original attack shapes.
+The adapter submits segments to Tag 2's native hurt-capsule test; its caller
+continues to handle guard, damage and reactions. Moves without sidecar entries
+retain their native geometry. Invalid or stale sidecars skip that fighter.
+
+Clive's source gauge is implemented as per-actor runtime state, with private
+requirements and properties enabled only by his character definition.
+Native moveset preparation recognizes these dynamic predicates, and enhanced
+Zantetsuken uses the native attack-to-throw and hit checks during contact.
+Conditional meter gains read the subsequent native hit/block latch directly,
+avoiding an evaluator call with a missing opponent. The compact numeral and
+progress bar use expiring atomic snapshots and a Vulkan alpha-blended overlay
+on the TV scan image. Numeral alpha masks come from the player's own Tekken 8
+installation and remain in a local `.zanhud` sidecar.
+
+See [Clive runtime support](CLIVE_RUNTIME.md) for component ownership, binary
+formats, upgrade requirements and diagnostics, and [Clive import status](CLIVE_IMPORT.md)
+for the exact gameplay confirmations and remaining experimental limitations.
+
 ## The launcher
 
 `launcher/` is what players start: `ttt2-launcher`, shown as "Ultimate

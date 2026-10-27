@@ -64,9 +64,14 @@ and shaders are translated to Vulkan as it runs.
 
 **Clive Rosfield is experimental and does not work properly.** His import is
 available from the player's own Tekken 8 installation and owned Clive DLC, but
-character and sword hitboxes, special moves and Eikon effects are incomplete.
-The launcher and importer mark him accordingly. See [Clive import status](docs/CLIVE_IMPORT.md)
-for the implemented features, known problems and remaining work.
+character and sword hitboxes now use full source geometry, while special moves
+and Eikon effects remain incomplete.
+Gigaflare and level-five Ultimate Zantetsuken have been confirmed in local
+gameplay. Zantetsuken has an independent charge meter and a compact numeral
+with a thin progress bar below the HP bar. Reimport Clive to update older packs.
+The launcher and importer retain the experimental warning. See
+[Clive import status](docs/CLIVE_IMPORT.md) for validation and remaining work,
+and [Clive runtime support](docs/CLIVE_RUNTIME.md) for formats and diagnostics.
 
 Playable from boot through arcade mode. Not done yet: the Wii U GamePad's
 screen and speaker, online play, the software keyboard and error viewer
