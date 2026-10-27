@@ -69,6 +69,12 @@ and Eikon effects remain incomplete.
 Gigaflare and level-five Ultimate Zantetsuken have been confirmed in local
 gameplay. Zantetsuken has an independent charge meter and a compact numeral
 with a thin progress bar below the HP bar. Reimport Clive to update older packs.
+Practice now includes **Advanced Settings → Clive Enhanced State**, with levels
+1–5, visible only when Clive is on the player's team. At level 5, `f+2,2,1`
+supports a held-1 guard break. A confirmed break gives +13/+14 frames of
+advantage, below i15 launchers, and reduces the meter to level 4. These changes
+also restore airborne string latches, shared hit reactions and a counter-hit
+pickup hurt capsule; the first `f+2` clip has a scoped contact adjustment.
 The launcher and importer retain the experimental warning. See
 [Clive import status](docs/CLIVE_IMPORT.md) for validation and remaining work,
 and [Clive runtime support](docs/CLIVE_RUNTIME.md) for formats and diagnostics.

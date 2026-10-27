@@ -88,8 +88,123 @@ the sword to an ordinary body joint and lose its independent transforms.
   charge for mirror opponents and tag partners. Simulation-to-GPU snapshots
   expire after combat updates stop. Both presentation paths and captures
   include the numeral. Tekken 8's Eikon effects remain incomplete.
+- Practice exposes **Advanced Settings → Clive Enhanced State** with English
+  labels and values 1-5, only when Clive is on the player's team. Selection
+  updates the real gauge and HUD and seeds Practice round resets.
+- Level 5 replaces Heat for the held-1 `f+2,2,1` branch. The dedicated charged
+  guard reaction gives +13/+14 frames, below i15 launchers, and a confirmed
+  break reduces charge from 200 to 150 (level 4) once. Early releases, whiffs
+  and ordinary hits do not consume this cost. Shared guard reactions and the
+  normal/tap/airborne hit variants keep their existing behavior.
 
 ## Verified locally
+
+Revision 12 isolates the charged string's guard reaction and increases its
+neutral-return frame from 45 to 47. Against attacker recovery at frame 60 and
+active frames 26-27, the resulting advantage is +13/+14. Property `0x8F05` runs
+on actual victim entry, confirms the attacker/victim pair and spends one level
+exactly once. The hold latch preserves that attack's charged classification
+after payment; the next attempt starts fresh and requires 200 points again.
+
+Revision 11 restores the Heat-only LP branch after `Okm_6rprp`, replacing its
+Heat check with level 5. Requirement `0x7F03` and property `0x8F04` track a
+continuous hold through source frame 21, independently of transient string
+variables. The source input window, animation and charged/tap damage remain.
+The runtime also adds the English Practice level selector through an overlay
+of the player's native BX01 menu, retaining the native navigation handlers.
+No extracted menu file is published.
+
+The current pack reports revision 17 (shared revision 5 plus Clive revision
+12). The Windows build, focused converter/runtime tests and offline checks of
+the real regenerated pack cover the route, holds/releases, dedicated recovery,
+normal reaction preservation, victim confirmation, one-time cost, geometry
+and sidecar CRC. The user confirmed the earlier break only allowed `1,1`;
+the expanded window and cost have not been tested in a new gameplay session.
+All game launches and manual gameplay tests are left to the user.
+
+Revision 10 adds an explicit native compatibility adjustment for the first
+f+2 clip, following the reported df+2 -> d+1 -> 4 -> f+2 miss. Its four source
+shapes have only frame 15 active; in offline pose reconstruction the tip moves
+from roughly `(-736,1835,1792)` to `(20,1137,2557)` mm between samples 14 and
+15. Compared with the source pose, the converted blade is about 78--100 mm
+lower at those samples. The opted-in adjustment raises each shape's minimum
+contact radius to 100 mm and keeps contact through frame 16, including unnamed
+rows sharing this first-strike clip and its tag twins. Other attacks keep
+their source windows and dimensions. The blade endpoints, damage, reaction
+and cancel data are unchanged.
+
+This is a gameplay compatibility adjustment, not a recovered source parameter
+or proof of a one-frame engine timing error. All 104 focused tests pass; the
+native collision primitive also passes checks using the reconstructed blade
+positions, the added contact margin and a high opponent that must still miss.
+The attempted unattended navigation did not reproduce the complete reported
+combo in a match. Therefore df+2 -> d+1 -> 4 -> f+2 remains a gameplay-review
+case, and this revision must not be described as confirmed in-game.
+
+Revision 9 addresses the reported CH d+1+2 -> f+2 pickup miss. The counter
+reaction referenced by `Okm_2WP` (unnamed source row 353 in this dump) enables
+an auxiliary **hurt** capsule with T8 property `0x8375` at frame 45 and disables
+it with `0x8376` at frame 60. Both were discarded. The three source words are
+`0, 950, 0x00640190`: slot 0, Trans-local offset `(0,0,950)` mm, half-height
+100 mm and radius 400 mm. Source handlers `1418A0A62`, `1418BB630`,
+`1418BBAF0` and the Trans transform at `1418BF97D` establish those semantics.
+The importer resolves the victim from the CH reaction instead of hardcoding
+its unnamed index, preserves the window through private properties
+`0x8F10..0x8F13`, and rejects an unexpected source layout.
+
+The runtime tests this additional volume only after the fourteen native hurt
+capsules miss, using the native evaluator with a temporary, restored slot.
+The volume follows the victim's Trans frame, not the falling hips' rotation;
+it belongs to the reaction even when the victim is a native fighter. Move
+entry, the disable property and a changed reaction prevent stale volumes.
+No attack radius, sword length or active window was increased. Offline pose
+reconstruction found less than 8 mm forward difference in f+2's tip across
+samples 12..17; the one-frame timing hypothesis is not established.
+
+All 103 focused importer/movement/collision tests pass, and the Windows build
+and native collision test pass. The latter includes a falling-body miss that
+becomes a hit with the source auxiliary capsule, plus ownership and clear
+checks. These are data and collision checks, not a completed in-game replay
+of CH d+1+2 -> f+2,2,2; that sequence still needs gameplay review.
+
+Revision 8 follows gameplay reports of a teleport-like first hit of f+2,2,2
+and difficulty continuing after df+2. The previous per-move fixes missed
+conditional and unnamed variants: `Okm_rp00F` still mapped `sDm_kawa30` to
+`motOrigin`, `sDm_kawa30G` to `Dw_AIR00_Png`, and its guard reaction
+`sGrd_kakaStA22G` to `motOrigin`. The character now preserves these shared
+reaction states, plus `sDm_sjk02tk5`, wherever they are referenced. This also
+covers related unnamed strings, running attacks and guard slots. The df+2
+first-strike stagger remains separately preserved.
+
+All 102 focused importer/collision/movement tests pass. A complete source/converted
+hit-list audit no longer finds the detected neutral/fall substitutions;
+f+2's conditional and default hit/guard states reference their real clips.
+All 227 exported moves and 683 shapes retain identical geometry by move name,
+including windows, body endpoints, calibrated sword offsets and radii. The
+native collision test accepts the regenerated sidecar CRC and passes its
+blade/body, height, lateral-miss and sweep cases. No geometry enlargement was
+needed for the identified reaction defects. Bound and post-bound branches
+remain present; the native bound victim state matches Noctis's. The user's
+exact post-df+2 sequence is unspecified, so the reported landing/continuation
+failure still needs gameplay confirmation with this candidate.
+
+Revision 7 restores uf+2's buffered airborne continuation using the same native
+input/contact words as Noctis. Tekken 8's bit setters (`0x815A`, bits 0 and 2)
+were discarded and its two-bit test (`507`) dropped the uf+2 finisher entirely.
+The replacement resets at the starter, carries both latches across the three
+attack rows, and preserves the source frame-34 dispatch and native cancel mode.
+Whiffs cannot satisfy the contact gate. It also retains the source victim
+reactions for `Okm_78WP` and `Okm_3LPLP` (incorrectly mapped to `motOrigin`) and
+`Okm_1LPLP2` (incorrectly mapped to `Fall_sKAM`). Grounded damage, block reactions,
+explicit airborne branches and bound/post-bound branches remain intact.
+
+The candidate passes 78 focused importer tests and real-pack checks of the
+restored routes, victim states, bound branches and collision-sidecar CRC, plus
+the existing Gigaflare/Zantetsuken pack checks. Gameplay confirmation is pending:
+test uf+2's continuation on hit versus whiff/block, repeat after an interrupted
+attempt, then test df+1,1 and db+1,1 in standing and juggle situations, including
+after a bound and at both facings. These checks do not establish that every
+Clive juggle or special move works.
 
 With the installed Tekken 8 build 25221600, extraction and staged import
 completed. The staged pack contains the original character's model, voice,

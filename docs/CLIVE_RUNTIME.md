@@ -1,8 +1,10 @@
 # Clive runtime support
 
 Clive remains experimental. The changes below implement full attack geometry,
-Gigaflare starters, Zantetsuken charge and enhanced continuations, and a compact
-HUD. They do not complete Eikon effects or establish that every move behaves
+Gigaflare starters, Zantetsuken charge and enhanced continuations, a compact
+HUD, Practice level selection, and a level-five charged guard break. They also
+restore airborne strings, hit reactions and counter-hit pickup support. They
+do not complete Eikon effects or establish that every move behaves
 correctly. [Clive import status](CLIVE_IMPORT.md) separates automated checks
 from gameplay confirmations and lists the remaining work.
 
@@ -10,14 +12,16 @@ from gameplay confirmations and lists the remaining work.
 
 | Component | Change and purpose |
 | --- | --- |
-| `tekken8/hitboxes.py` | Export every active source shape, retaining individual windows, radius, height and endpoint offsets, including zero-radius sword reach. Calibrate body and combat-grip frames, preserve virtual midpoints and ground-relative endpoints, and copy shapes to Tag Assault twins. |
-| `convert/moveset.py` | Keep collision-twin ownership alongside upstream Tag Assault finish-hit and string generation. Enable Clive's source gauge mappings, conditional gains, throw starters and enhanced routes through the opt-in mechanics adapter. |
-| `convert/move_overrides.py` | Restore private grounded victim reaction lists for Clive's `df+2` string, preserving its initial stagger instead of prematurely launching the victim away from the second strike. Airborne and guard reactions keep their existing mappings. |
+| `tekken8/hitboxes.py` | Export every active source shape, retaining individual windows, radius, height and endpoint offsets, including zero-radius sword reach. Calibrate body and combat-grip frames, preserve virtual midpoints and ground-relative endpoints, and copy shapes to Tag Assault twins. Apply Clive's explicit first-`f+2` contact margin only to rows sharing that animation. |
+| `convert/moveset.py` | Keep collision-twin ownership alongside upstream Tag Assault finish-hit and string generation. Preserve character-selected reaction states before inferred remapping. Enable Clive's source gauge mappings and mechanics adapter. |
+| `convert/move_overrides.py`, `convert/clive.py` | Restore grounded victim reactions, airborne input/contact latches and the counter-hit pickup capsule. Replace this string's Heat gate with level 5; preserve charge/release behavior and create an isolated guard-break recovery state. |
 | `importer.py` | Build full geometry with the converted moves, bind it to the final serialized moveset after retargeting, extract local numeral masks, and identify the runtime sidecar separately from legacy-summary audit differences. |
-| `characters/clive.py` | Opt into full hitboxes and Zantetsuken, import the actual Gigaflare starters, retain the targeted grounded reactions, and raise Clive's own revision to 6. Keep the experimental warning. |
+| `characters/clive.py` | Opt into full hitboxes, Zantetsuken, airborne strings, pickup support and charged guard breaks. Preserve selected shared reactions and the first-`f+2` contact adjustment. Clive's own revision is 12. Keep the experimental warning. |
 | `title/imported_hitboxes.h` | Parse and validate sidecars, transform endpoints, compose local and parent frames, and build swept or vertical segments. |
-| `title/roster.cpp` | Load geometry and numeral sidecars; evaluate full attack segments through native hurt capsules; refresh weapon frames at collision time; manage actor-specific charge, properties, dynamic requirements and HUD snapshots. |
-| `title/clive_state.h` | Clamp charge to 0-200, snapshot charge at attack entry, preserve hit/block-specific gains, consume charge and reset new actors or rounds. Recognize private dynamic requirements during native preparation. |
+| `title/imported_hurtbox.h` | Decode the source auxiliary hurt capsule and track its owning reaction, dimensions, enable/disable state and Trans-local offset. |
+| `title/roster.cpp` | Load sidecars; evaluate attack segments and auxiliary hurt capsules through native collision; manage independent actor gauges and held charges; connect Practice selection and confirmed guard-break costs to the HUD. |
+| `title/clive_state.h` | Clamp charge to 0-200, support levels 1-5, snapshot attack-entry charge, track held/released inputs and confirmed victims, spend one level per guard break, and recognize private dynamic requirements. |
+| `title/clive_practice_menu.h` | Extend the native BX01 Practice menu with an English level selector and chooser. Preserve native Xtal handlers while renaming their serialized constants and updating binary offsets. |
 | `tekken8/clive_hud.py` | Extract only the original numeral alpha masks from the player's Tekken 8 installation. |
 | `title/clive_hud.h` | Validate numeral masks, publish independent actor snapshots, and rasterize the existing compact numeral with a thin next-level progress bar. |
 | `gpu/vulkan/clive_hud.cpp`, `renderer.cpp`, `renderer.h` | Alpha-blend the HUD onto the TV scan image with native Vulkan shaders, upload buffers and cached pipelines. Preserve transparency, support RGBA/BGRA scan images and restore renderer pipeline tracking afterwards. |
@@ -85,6 +89,89 @@ the trace also confirmed selection of threshold 200 on contact frame 22,
 consumption to zero, and normal attacks afterwards. Lower enhanced routes
 retain their source throw damage, victim animations and timed consumption.
 
+## Strings, reactions and pickup corrections
+
+`uf+2` now retains its input and contact latches across all three attack rows,
+using native persistent words as Noctis does. The starter clears both words;
+the frame-34 finisher requires both buffered input and confirmed contact.
+Whiffs cannot qualify, and an interrupted attempt cannot seed the next one.
+The converter also restores the targeted victim reactions for `uf+1+2`,
+`df+1,1` and `db+1,1`, retaining their separate airborne and bound branches.
+
+Clive preserves `sDm_kawa30`, `sDm_kawa30G`, `sGrd_kakaStA22G` and
+`sDm_sjk02tk5` wherever referenced. This covers conditional and unnamed
+variants of `f+2` and its strings, avoiding inferred substitutions with
+`motOrigin`, airborne reactions or `Fall_sKAM`. The separate `df+2` stagger
+correction remains in place.
+
+CH `d+1+2` restores the source victim's auxiliary hurt capsule from frame 45
+until its frame-60 disable property. It has a Trans-local offset of
+`(0,0,950)` mm, half-height 100 mm and radius 400 mm. The runtime tests it only
+after the fourteen ordinary hurt capsules miss, temporarily substituting and
+then restoring a native slot. Ownership and disable checks prevent stale
+volumes; the capsule follows Trans rather than the falling hips' rotation.
+This works when the victim is a native fighter as well as an imported one.
+
+The first `f+2` clip separately opts into a 100 mm minimum shape radius and
+an inclusive active window of frames 15-16 instead of frame 15 alone. Rows
+sharing that clip, including unnamed variants and tag twins, receive the same
+adjustment. It compensates for the measured retargeted blade position; it is
+a compatibility change, not the source's authored geometry. Other attacks
+retain their dimensions and windows. Full combo replays remain manual checks.
+
+## Practice level selection
+
+Open **Practice → Advanced Settings → Clive Enhanced State**. The label and
+chooser are in English, and the available values are **1, 2, 3, 4, 5**.
+The row is visible and focusable only when Clive is on the player's Practice
+team, including as a tag partner. Without Clive on that team the row is
+hidden; an opponent-only Clive does not enable the player's setting.
+
+Selecting a level sets the corresponding actor's gauge to 0, 50, 100, 150 or
+200 points and refreshes the HUD. Opening the menu reads the current level.
+Confirming the same number can reset partial progress within that level.
+The selected value seeds subsequent Practice round resets; normal combat
+gains and consumption still operate between resets. New actor setup clears
+the previous actor's selection and widget tracking.
+
+The runtime patches the locally loaded native menu resource `0xE23E4D32`
+through the archive overlay. It adds a row, five-value selector, description
+and chooser while retaining native navigation handlers. No extracted menu
+resource is distributed. Invalid layouts produce a diagnostic instead of
+silently writing an incompatible menu.
+
+## Level-five charged guard break
+
+The source Heat-only LP branch after `f+2,2` is available at **level 5 (200
+points)**. Its input window remains frames 1-25 of the second strike. Holding
+the final **1** through the source charge deadline, frame 21 of the finisher
+in the inspected dump, enables the charged reaction. Releasing early, even
+when followed by another press, retains the normal block reaction.
+
+The source animation, 30/25 charged/tap damage variants and airborne hit
+branches are preserved. Only the grounded charged block reaction points to
+`Okm_CliveGuardBreak`, a private copy of the shared source guard state.
+Its neutral return moves from frame 45 to **47**. With attacker recovery at
+60 and active frames 26-27, this gives **+13 on first-frame contact and +14
+on late contact**. This admits slower follow-ups than the previous +11/+12
+window while keeping i15 launchers outside the guaranteed window. Other
+attacks using the shared guard state keep their existing recovery.
+
+Entering that victim state confirms the recorded attacker/victim pair and
+sets the attacker's gauge to **150 points (level 4)**. The cost runs once per
+charged attack. Whiffs, ordinary hits, early releases and another victim's
+state do not pay. The attack retains its confirmed charged classification
+after payment, preventing a second active-frame evaluation from changing the
+selected reaction. A new attempt clears that confirmation and needs level 5
+again. Other Heat branches remain disabled.
+
+| Private id | Purpose |
+| --- | --- |
+| Requirement `0x7F03` | Completed held charge with the level-five gate; treated as a dynamic predicate by native preparation. |
+| Property `0x8F04` | Begin the per-actor charge latch with the source deadline. |
+| Property `0x8F05` | Confirm actual guard-break victim entry and pay the level-five-to-four cost once. |
+| Properties `0x8F10`–`0x8F13` | Auxiliary hurt-capsule offset, size and clear operations on the victim reaction. |
+
 ## Compact HUD
 
 The accepted numeral remains at its existing position below the HP bar,
@@ -131,9 +218,10 @@ and exact length. Digit color and the progress bar are generated by the HUD.
 ## Updating and verifying
 
 Rebuild the runtime and reimport Clive through the launcher to update an older
-pack. Current Clive packs report revision 11: shared pack revision 5 plus
-Clive revision 6. Both updated code and regenerated data are required; an old
-pack does not gain the restored starter rows or enhanced routes automatically.
+pack. Current Clive packs report **revision 17**: shared pack revision 5 plus
+Clive revision 12. Both updated code and regenerated data are required; an old
+pack does not gain the new string routes, guard-break reaction or cost marker
+automatically. The Practice menu itself is supplied by the updated runtime.
 The local development installation was updated with a backup of its previous
 executable and Clive pack. Those machine-specific backups remain ignored.
 
@@ -149,7 +237,24 @@ With the character importer's Python dependencies available, run:
 python -m unittest discover -s tools/characters/tests -p test_tekken8_hitboxes.py
 python -m unittest discover -s tools/characters/tests -p test_move_overrides.py
 python -m unittest discover -s tools/characters/tests -p test_clive_mechanics.py
+python -m unittest discover -s tools/characters/tests -p test_tekken8_convert.py
 ```
+
+For a focused check that does not launch the game, run:
+
+```text
+ctest --test-dir <build-directory> -R "^clive_(state|practice_menu)_test$" --output-on-failure
+```
+
+`clive_practice_menu_test` uses synthetic menu data and can additionally check
+a privately extracted native Practice resource with
+`clive_practice_menu_test <native-practice-resource>`. It verifies five values,
+English labels, chooser naming, binary table offsets and idempotent patching.
+`clive_state_test` covers the five levels, full holds, early release/re-press,
+interruption, confirmed-victim matching, the 200-to-150 cost, duplicate
+confirmation and the next attempt's gate. Converter tests check scoped
+reaction cloning, +13/+14 recovery calculations, retained damage and normal
+reactions, and the private marker on the dedicated victim state.
 
 `weapon_collision_test` exercises native blade/hurt-capsule geometry and can
 also validate a generated sidecar against its final moveset:
@@ -173,13 +278,26 @@ Gameplay feedback confirms `b+1`, Gigaflare, charge accumulation and Ultimate
 Zantetsuken. Automated geometry and data checks cover additional cases;
 they do not certify every move, facing, wall or tag interaction.
 
-Publication checks on 2026-10-27: the Windows runtime built successfully and
+Earlier publication checks on 2026-10-27: the Windows runtime built successfully and
 all 17 CTest tests passed. The Python suite completed 659 tests across 63
 modules with no failures and 9 individual skips. The POSIX-only
 `test_launcher.py` module was excluded on Windows. Native validation also
 loaded the real 227-move sidecar against its final moveset CRC, and generated
 pack checks retained both Gigaflare starter windows, all four enhanced routes,
 paired victim links, consumption and the distinct Ultimate animation.
+
+The later Practice and guard-break publication checks passed 87 Python tests
+across the Clive mechanics, hitbox, move-override, movement, Tekken 8 converter
+and tag-system modules, plus both focused CTest tests. The Windows runtime
+build was up to date. These checks did not launch the game. Offline checks of
+the regenerated revision-17 pack verified
+the level-five route, frame-21 hold marker, dedicated frame-47 guard state,
+normal/air/tap reaction preservation and matching moveset/sidecar CRC. The
+guard-break balance change retained all attack geometry by move name; raw
+move ids can shift when the new reaction is inserted. The user's gameplay
+feedback established that the earlier break permitted `1,1`; the expanded
+window and new cost have automated and data validation, with manual gameplay
+verification left to the user. Do not start the game for these checks.
 
 Set `TTT2_TRACE_IMPORTED_HITBOXES=1` for per-shape collision diagnostics or
 `TTT2_TRACE_CLIVE=1` for meter and continuation diagnostics before launching
